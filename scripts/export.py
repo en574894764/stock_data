@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 """Export data from PostgreSQL → stock_data CSV format (quarterly).
 
+Default: incremental — only exports new/current quarters.
+With --full: re-export everything from scratch.
+
 Usage:
-  cd ~/workspace/stock_data
-  python3 scripts/export.py
+  python3 scripts/export.py           # incremental (weekly cron)
+  python3 scripts/export.py --full    # full rebuild
 """
 
-import csv, os, sys
+import argparse, csv, os, sys
 from pathlib import Path
-from datetime import date
+from datetime import date, timedelta
 
 import psycopg2
-import psycopg2.extras
 
 DSN = os.environ.get("PG_EXPORT_DSN", "postgresql://james@localhost:5432/investassist")
 REPO = Path(os.environ.get("STOCK_DATA_REPO", os.path.expanduser("~/workspace/stock_data")))
@@ -29,44 +31,58 @@ def _write_csv(path: Path, rows, header: list[str]):
         w.writerows(rows)
 
 
-def export_daily(conn, table: str, dir_name: str, ts_col: str, cols: list[str], 
-                 where: str = ""):
-    """Export daily data as quarterly CSVs. Reads from PG partitioned table.
+def export_daily(conn, table: str, dir_name: str, ts_col: str, cols: list[str],
+                 where: str = "", full: bool = False):
+    """Export daily data as quarterly CSVs from PG partitioned table.
 
-    Args:
-        table: PG table name (e.g. 'daily_quote' — parent of year partitions).
-        dir_name: Output subdirectory (e.g. 'a_shares').
-        ts_col: Timestamp/date column for ordering.
-        cols: Columns to export.
-        where: Optional WHERE clause (e.g. "market='A'").
+    Incremental mode (default): only exports the current and previous quarter.
+    Past quarters are skipped if their CSV already exists.
+    --full: re-exports every quarter.
     """
     out_dir = DATA / "daily" / dir_name
     out_dir.mkdir(parents=True, exist_ok=True)
-
-    # Get min/max year range from the parent table
     cur = conn.cursor()
+
     cur.execute(f"SELECT MIN(EXTRACT(YEAR FROM {ts_col})), MAX(EXTRACT(YEAR FROM {ts_col})) FROM {table} {where}")
     min_y, max_y = cur.fetchone()
     if min_y is None:
         print(f"  {dir_name}: NO DATA — skipping")
         return
 
-    years = range(int(min_y), int(max_y) + 1)
     col_csv = ", ".join(f'"{c}"' for c in cols)
-    total_rows = 0
+    total_rows, skipped, exported = 0, 0, 0
+    years = range(int(min_y), int(max_y) + 1)
+    today = date.today()
 
     for year in years:
         for qi, (qm_start, qm_end) in enumerate(QUARTERS, 1):
-            # Use the year-partitioned child table for performance
             child = f"{table}_{year}"
             cur.execute(f"SELECT 1 FROM information_schema.tables WHERE table_name='{child}'")
             src = child if cur.fetchone() else table
 
             start = f"{year}-{qm_start:02d}-01"
+            end = f"{year}-{qm_end:02d}-28"
             if qm_end == 12:
                 end = f"{year}-12-31"
             else:
-                end = f"{year}-{qm_end+1:02d}-01"
+                q_next = qm_end + 1
+                end = f"{year}-{q_next:02d}-01"
+
+            csv_path = out_dir / f"{year}-Q{qi}.csv"
+
+            # ── Incremental skip logic ──
+            if not full and csv_path.exists():
+                # Current quarter: always re-export (new days added)
+                # Previous quarter: re-export for 30 days after quarter end (corrections)
+                quarter_end = date(year, qm_end, 1) + timedelta(days=31)
+                quarter_end = quarter_end.replace(day=1) - timedelta(days=1)
+                grace_end = quarter_end + timedelta(days=30)
+
+                if today <= grace_end:
+                    pass  # re-export below
+                else:
+                    skipped += 1
+                    continue
 
             cur.execute(f"""
                 SELECT COUNT(*) FROM {src}
@@ -76,23 +92,22 @@ def export_daily(conn, table: str, dir_name: str, ts_col: str, cols: list[str],
             if count == 0:
                 continue
 
-            csv_path = out_dir / f"{year}-Q{qi}.csv"
             cur.execute(f"""
                 SELECT {col_csv} FROM {src}
                 WHERE {ts_col} >= '{start}' AND {ts_col} < '{end}' {where}
                 ORDER BY {ts_col}
             """)
-            rows = cur.fetchall()
-            _write_csv(csv_path, rows, cols)
+            _write_csv(csv_path, cur.fetchall(), cols)
             total_rows += count
+            exported += 1
             sz = csv_path.stat().st_size
             print(f"  {year}-Q{qi}: {count:>10,} rows  {sz:>12,} bytes")
 
-    print(f"  {dir_name}: {total_rows:,} total rows ({years[0]}–{years[-1]})")
+    print(f"  {dir_name}: {total_rows:,} rows ({exported} exported, {skipped} skipped)")
 
 
 def _export_table(conn, pg_table: str, csv_path: Path):
-    """Export a table as a single CSV file."""
+    """Export a table as a single CSV file. Always overwrites."""
     cur = conn.cursor()
     cur.execute(f"SELECT COUNT(*) FROM {pg_table}")
     count = cur.fetchone()[0]
@@ -101,38 +116,38 @@ def _export_table(conn, pg_table: str, csv_path: Path):
         return
 
     cur.execute(f"SELECT * FROM {pg_table} ORDER BY 1, 2")
-    rows = cur.fetchall()
-    header = [d[0] for d in cur.description]
     csv_path.parent.mkdir(parents=True, exist_ok=True)
-    _write_csv(csv_path, rows, header)
+    _write_csv(csv_path, cur.fetchall(), [d[0] for d in cur.description])
     print(f"  {csv_path.name}: {count:,} rows")
 
 
 def main():
-    print(f"DSN: {DSN}")
-    print(f"Repo: {REPO}\n")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--full", action="store_true", help="Full rebuild")
+    args = parser.parse_args()
+
+    print(f"Mode: {'FULL' if args.full else 'INCREMENTAL'}")
+    print(f"DSN: {DSN}\n")
     conn = psycopg2.connect(DSN)
 
-    # ── Daily data ──
+    # ── Daily ──
     print("=== DAILY ===")
     export_daily(conn, "daily_quote", "a_shares", "trade_date",
                  ["ts_code", "trade_date", "open", "high", "low", "close",
-                  "pre_close", "vol", "amount", "pct_chg"])
-
+                  "pre_close", "vol", "amount", "pct_chg"], full=args.full)
     export_daily(conn, "etf_quote", "etf", "trade_date",
                  ["code", "trade_date", "open", "high", "low", "close",
-                  "pre_close", "vol", "amount"])
+                  "pre_close", "vol", "amount"], full=args.full)
+    print("  hk: SKIP (hk_quote has 0 rows in PG)")
 
-    print("\n  hk: SKIP (hk_quote has 0 rows in PG)")
-
-    # ── Fundamental ──
+    # ── Fundamental (always overwrite — reference data) ──
     print("\n=== FUNDAMENTAL ===")
     _export_table(conn, "income", DATA / "fundamental" / "income_stmt.csv")
     _export_table(conn, "balance_sheet", DATA / "fundamental" / "balance_sheet.csv")
     _export_table(conn, "cashflow", DATA / "fundamental" / "cashflow.csv")
     _export_table(conn, "financial_indicator", DATA / "fundamental" / "financial_indicator.csv")
 
-    # ── Meta ──
+    # ── Meta (small, always overwrite) ──
     print("\n=== META ===")
     _export_table(conn, "stocks", DATA / "meta" / "stock_basic.csv")
     _export_table(conn, "trade_cal", DATA / "meta" / "trade_cal.csv")
@@ -140,8 +155,7 @@ def main():
     print("  hk_basic: SKIP (no hk_basic table in PG)")
 
     # ── Macro ──
-    print("\n=== MACRO ===")
-    print("  SKIP: macro data is Parquet-only (not in PG per design)")
+    print("\n=== MACRO ===  SKIP (Parquet-only, not in PG)")
 
     conn.close()
     print(f"\n✅ Done. Data in {DATA}/")
