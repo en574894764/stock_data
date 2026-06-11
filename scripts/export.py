@@ -1,90 +1,151 @@
 #!/usr/bin/env python3
-"""Export data from quant_sys Parquet → stock_data CSV format.
+"""Export data from PostgreSQL → stock_data CSV format (quarterly).
 
 Usage:
-  cd ~/workspace/quant_sys
-  .venv/bin/python /path/to/stock_data/scripts/export.py
+  cd ~/workspace/stock_data
+  python3 scripts/export.py
 """
 
-import duckdb, os, sys
+import csv, os, sys
 from pathlib import Path
+from datetime import date
 
-QUANT_SYS = os.path.expanduser("~/workspace/quant_sys")
-REPO_PATH = os.environ.get("STOCK_DATA_REPO", os.path.expanduser("~/stock_data"))
-DATA_DIR = f"{REPO_PATH}/data"
+import psycopg2
+import psycopg2.extras
 
-def export():
-    con = duckdb.connect()
-    base = f"{QUANT_SYS}/data/raw"
+DSN = os.environ.get("PG_EXPORT_DSN", "postgresql://james@localhost:5432/investassist")
+REPO = Path(os.environ.get("STOCK_DATA_REPO", os.path.expanduser("~/workspace/stock_data")))
+DATA = REPO / "data"
 
-    # ── Daily data: one CSV per year ──
-    for market, glob_path, dir_name in [
-        ("a_shares", f"{base}/a_shares/daily/date=*/data.parquet", "a_shares"),
-        ("hk", f"{base}/hk_connect/daily/date=*/data.parquet", "hk"),
-        ("etf", f"{base}/etf/daily/date=*/data.parquet", "etf"),
-    ]:
-        os.makedirs(f"{DATA_DIR}/daily/{dir_name}", exist_ok=True)
-        years = con.execute(f"""
-            SELECT DISTINCT REGEXP_EXTRACT(filename, 'date=(\\d{{4}})')
-            FROM read_parquet('{glob_path}', union_by_name=true, filename=true)
-            ORDER BY 1
-        """).fetchall()
-        
-        print(f"\n### {dir_name} ({len(years)} years)")
-        for (year,) in years:
-            csv_path = f"{DATA_DIR}/daily/{dir_name}/{year}.csv"
-            con.execute(f"""
-                COPY (
-                    SELECT * EXCLUDE(filename)
-                    FROM read_parquet('{glob_path}', union_by_name=true, filename=true)
-                    WHERE REGEXP_EXTRACT(filename, 'date=(\\d{{4}})') = '{year}'
-                    ORDER BY 1, 2
-                ) TO '{csv_path}' (HEADER, DELIMITER ',')
+QUARTERS = [(1, 3), (4, 6), (7, 9), (10, 12)]
+
+
+def _write_csv(path: Path, rows, header: list[str]):
+    """Write rows to CSV with header."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(header)
+        w.writerows(rows)
+
+
+def export_daily(conn, table: str, dir_name: str, ts_col: str, cols: list[str], 
+                 where: str = ""):
+    """Export daily data as quarterly CSVs. Reads from PG partitioned table.
+
+    Args:
+        table: PG table name (e.g. 'daily_quote' — parent of year partitions).
+        dir_name: Output subdirectory (e.g. 'a_shares').
+        ts_col: Timestamp/date column for ordering.
+        cols: Columns to export.
+        where: Optional WHERE clause (e.g. "market='A'").
+    """
+    out_dir = DATA / "daily" / dir_name
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Get min/max year range from the parent table
+    cur = conn.cursor()
+    cur.execute(f"SELECT MIN(EXTRACT(YEAR FROM {ts_col})), MAX(EXTRACT(YEAR FROM {ts_col})) FROM {table} {where}")
+    min_y, max_y = cur.fetchone()
+    if min_y is None:
+        print(f"  {dir_name}: NO DATA — skipping")
+        return
+
+    years = range(int(min_y), int(max_y) + 1)
+    col_csv = ", ".join(f'"{c}"' for c in cols)
+    total_rows = 0
+
+    for year in years:
+        for qi, (qm_start, qm_end) in enumerate(QUARTERS, 1):
+            # Use the year-partitioned child table for performance
+            child = f"{table}_{year}"
+            cur.execute(f"SELECT 1 FROM information_schema.tables WHERE table_name='{child}'")
+            src = child if cur.fetchone() else table
+
+            start = f"{year}-{qm_start:02d}-01"
+            if qm_end == 12:
+                end = f"{year}-12-31"
+            else:
+                end = f"{year}-{qm_end+1:02d}-01"
+
+            cur.execute(f"""
+                SELECT COUNT(*) FROM {src}
+                WHERE {ts_col} >= '{start}' AND {ts_col} < '{end}' {where}
             """)
-            n = con.execute(f"SELECT COUNT(*) FROM '{csv_path}'").fetchone()[0]
-            sz = os.path.getsize(csv_path)
-            print(f"  {year}: {n:>10,} rows  {sz:>12,} bytes")
+            count = cur.fetchone()[0]
+            if count == 0:
+                continue
 
-    # ── Fundamental tables ──
-    print("\n### Fundamental")
-    for f in ["income_stmt", "balance_sheet", "cashflow", "financial_indicator"]:
-        src = f"{base}/a_shares/fundamental/{f}.parquet"
-        dst = f"{DATA_DIR}/fundamental/{f}.csv"
-        os.makedirs(f"{DATA_DIR}/fundamental", exist_ok=True)
-        con.execute(f"COPY (SELECT * FROM '{src}' ORDER BY 1,2) TO '{dst}' (HEADER, DELIMITER ',')")
-        n = con.execute(f"SELECT COUNT(*) FROM '{src}'").fetchone()[0]
-        print(f"  {f}: {n:,} rows")
+            csv_path = out_dir / f"{year}-Q{qi}.csv"
+            cur.execute(f"""
+                SELECT {col_csv} FROM {src}
+                WHERE {ts_col} >= '{start}' AND {ts_col} < '{end}' {where}
+                ORDER BY {ts_col}
+            """)
+            rows = cur.fetchall()
+            _write_csv(csv_path, rows, cols)
+            total_rows += count
+            sz = csv_path.stat().st_size
+            print(f"  {year}-Q{qi}: {count:>10,} rows  {sz:>12,} bytes")
+
+    print(f"  {dir_name}: {total_rows:,} total rows ({years[0]}–{years[-1]})")
+
+
+def _export_table(conn, pg_table: str, csv_path: Path):
+    """Export a table as a single CSV file."""
+    cur = conn.cursor()
+    cur.execute(f"SELECT COUNT(*) FROM {pg_table}")
+    count = cur.fetchone()[0]
+    if count == 0:
+        print(f"  {csv_path.name}: EMPTY — skipping")
+        return
+
+    cur.execute(f"SELECT * FROM {pg_table} ORDER BY 1, 2")
+    rows = cur.fetchall()
+    header = [d[0] for d in cur.description]
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    _write_csv(csv_path, rows, header)
+    print(f"  {csv_path.name}: {count:,} rows")
+
+
+def main():
+    print(f"DSN: {DSN}")
+    print(f"Repo: {REPO}\n")
+    conn = psycopg2.connect(DSN)
+
+    # ── Daily data ──
+    print("=== DAILY ===")
+    export_daily(conn, "daily_quote", "a_shares", "trade_date",
+                 ["ts_code", "trade_date", "open", "high", "low", "close",
+                  "pre_close", "vol", "amount", "pct_chg"])
+
+    export_daily(conn, "etf_quote", "etf", "trade_date",
+                 ["code", "trade_date", "open", "high", "low", "close",
+                  "pre_close", "vol", "amount"])
+
+    print("\n  hk: SKIP (hk_quote has 0 rows in PG)")
+
+    # ── Fundamental ──
+    print("\n=== FUNDAMENTAL ===")
+    _export_table(conn, "income", DATA / "fundamental" / "income_stmt.csv")
+    _export_table(conn, "balance_sheet", DATA / "fundamental" / "balance_sheet.csv")
+    _export_table(conn, "cashflow", DATA / "fundamental" / "cashflow.csv")
+    _export_table(conn, "financial_indicator", DATA / "fundamental" / "financial_indicator.csv")
 
     # ── Meta ──
-    print("\n### Meta")
-    for src_name, dst_name in [
-        ("a_shares/meta/stock_basic", "stock_basic"),
-        ("a_shares/meta/trade_cal", "trade_cal"),
-        ("etf/meta/fund_basic", "etf_basic"),
-        ("hk_connect/meta/hk_basic", "hk_basic"),
-    ]:
-        src = f"{base}/{src_name}.parquet"
-        dst = f"{DATA_DIR}/meta/{dst_name}.csv"
-        os.makedirs(f"{DATA_DIR}/meta", exist_ok=True)
-        con.execute(f"COPY (SELECT * FROM '{src}' ORDER BY 1) TO '{dst}' (HEADER, DELIMITER ',')")
-        n = con.execute(f"SELECT COUNT(*) FROM '{src}'").fetchone()[0]
-        print(f"  {dst_name}: {n:,} rows")
+    print("\n=== META ===")
+    _export_table(conn, "stocks", DATA / "meta" / "stock_basic.csv")
+    _export_table(conn, "trade_cal", DATA / "meta" / "trade_cal.csv")
+    _export_table(conn, "etf", DATA / "meta" / "etf_basic.csv")
+    print("  hk_basic: SKIP (no hk_basic table in PG)")
 
     # ── Macro ──
-    print("\n### Macro")
-    os.makedirs(f"{DATA_DIR}/macro", exist_ok=True)
-    for m in ["shibor", "lpr", "cpi", "pmi", "money_supply", "bond_yield_10y"]:
-        src = f"{base}/macro/{m}.parquet"
-        dst = f"{DATA_DIR}/macro/{m}.csv"
-        try:
-            con.execute(f"COPY (SELECT * FROM '{src}' ORDER BY 1) TO '{dst}' (HEADER, DELIMITER ',')")
-            n = con.execute(f"SELECT COUNT(*) FROM '{src}'").fetchone()[0]
-            print(f"  {m}: {n:,} rows")
-        except Exception as e:
-            print(f"  {m}: SKIP ({e})")
+    print("\n=== MACRO ===")
+    print("  SKIP: macro data is Parquet-only (not in PG per design)")
 
-    con.close()
-    print(f"\n✅ Done. Data in {DATA_DIR}/")
+    conn.close()
+    print(f"\n✅ Done. Data in {DATA}/")
+
 
 if __name__ == "__main__":
-    export()
+    main()
