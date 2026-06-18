@@ -1,0 +1,8 @@
+# Parquet 文件是本地读缓存，从 daily/*.csv 重建，不进 git
+1d/
+*.parquet
+
+# Python
+__pycache__/
+*.pyc
+.DS_Store
