@@ -1,12 +1,15 @@
-# 旧的 1d/ parquet 是从 daily/*.csv 重建的本地读缓存，不进 git
+# ── 本地缓存 (从 git 跟踪的 CSV 派生, 后端按需重建, 不进 git) ──
+# 注意: gitignore 不支持行内注释, 规则必须独占一行
 1d/
-
-# snapshot/ 是 dashboard 旧版本的临时缓存（已废弃，由 market/ 取代），不进 git
 snapshot/
+market/
 
-# market/ 和 index/ 是全市场每日落地数据（Tushare bulk daily + 多市场指数），
-# 是涨跌榜/涨跌数/指数面板的权威数据源，需要纳入 git 备份。
-# 因此不再全局忽略 *.parquet，只忽略明确的缓存目录。
+# ── git 跟踪的权威数据均为 CSV ──
+# daily/<symbol>.csv          个股日线
+# index/<code>.csv            多市场指数时间序列
+# fundamental/<表>/<期>.csv    财报
+# macro/*.csv                 宏观
+# meta/*.csv                  基础信息
 
 # Python
 __pycache__/
