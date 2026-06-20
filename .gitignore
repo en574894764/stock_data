@@ -1,6 +1,12 @@
-# Parquet 文件是本地读缓存，从 daily/*.csv 重建，不进 git
+# 旧的 1d/ parquet 是从 daily/*.csv 重建的本地读缓存，不进 git
 1d/
-*.parquet
+
+# snapshot/ 是 dashboard 旧版本的临时缓存（已废弃，由 market/ 取代），不进 git
+snapshot/
+
+# market/ 和 index/ 是全市场每日落地数据（Tushare bulk daily + 多市场指数），
+# 是涨跌榜/涨跌数/指数面板的权威数据源，需要纳入 git 备份。
+# 因此不再全局忽略 *.parquet，只忽略明确的缓存目录。
 
 # Python
 __pycache__/
