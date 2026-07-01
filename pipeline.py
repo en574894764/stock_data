@@ -211,7 +211,7 @@ def step_backup(cron: bool = False) -> bool:
     sp.run(["git", "pull", "--rebase", "origin", "main"], capture_output=True, text=True, cwd=REPO, timeout=30)
 
     for attempt in range(3):
-        pr = sp.run(["git", "push", "origin", "main"], capture_output=True, text=True, cwd=REPO, timeout=60)
+        pr = sp.run(["git", "push", "origin", "main"], capture_output=True, text=True, cwd=REPO, timeout=120)
         if pr.returncode == 0:
             log(f"  Git push 成功 (尝试 {attempt + 1})")
             return True
