@@ -261,6 +261,132 @@ def fetch_from_akshare(dry_run: bool = False) -> int:
 
 
 # ═════════════════════════════════════════════════════════════════════════════
+# 定向补全: 根据 validate.py 缺失报告拉取
+# ═════════════════════════════════════════════════════════════════════════════
+
+def fetch_from_report(report_path: str, dry_run: bool = False) -> int:
+    """根据 validate.py --missing-report 输出的 JSON，定向补全缺失数据。
+
+    支持：
+    - daily_gaps: 用 AKShare 历史行情补全日线缺口
+    - 跳过 no_data_stocks（港股为主，AKShare 无法覆盖）
+    - 跳过 financial_gaps（需额外接口）
+    """
+    try:
+        with open(report_path) as f:
+            report = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        log(f"无法读取缺失报告: {e}", "ERROR")
+        return 0
+
+    daily_gaps = report.get("daily_gaps", [])
+    table_gaps = report.get("table_gaps", [])
+
+    # 过滤：只处理 A 股 + 最近 30 天内有数据的（不处理港股和疑似退市的）
+    actionable = [g for g in daily_gaps
+                  if not g["ts_code"].endswith(".HK")
+                  and g.get("days_behind", 999) < 365
+                  and g.get("reason") != "已退市(未标记)"]
+
+    if not actionable:
+        log("缺失报告中无待补全的 A 股日线数据")
+    else:
+        log(f"从缺失报告发现 {len(actionable)} 只 A 股需补全日线 (共 {len(daily_gaps)} 只缺失)")
+        if dry_run:
+            for g in actionable[:10]:
+                log(f"  [dry-run] {g['ts_code']} {g['name']} 落后 {g['days_behind']} 天")
+            if len(actionable) > 10:
+                log(f"  ... 等 {len(actionable)} 只")
+        else:
+            _fill_daily_gaps(actionable)
+
+    if table_gaps:
+        log(f"表级缺失 {len(table_gaps)} 个 (需单独处理):")
+        for g in table_gaps:
+            log(f"  {g['table']} ({g['name']}): {g['max_date']} → 落后 {g['days_behind']} 天")
+
+    return len(actionable)
+
+
+def _fill_daily_gaps(stocks: list[dict]) -> int:
+    """用 AKShare 历史行情补全指定股票的日线缺口。
+
+    对每只股票，拉取最近 60 天的日线数据，写入 CSV。
+    """
+    try:
+        import akshare as ak
+    except ImportError:
+        log("akshare 未安装，无法定向补全", "ERROR")
+        return 0
+
+    total_new = 0
+    for i, s in enumerate(stocks):
+        ts_code = s["ts_code"]
+        name = s["name"]
+        # 去掉后缀获取纯代码
+        code = ts_code.split(".")[0]
+
+        try:
+            # 拉取历史日线（最近60天足够覆盖缺口）
+            df = ak.stock_zh_a_hist(symbol=code, period="daily", adjust="qfq")
+            if df is None or df.empty:
+                log(f"  [{i+1}/{len(stocks)}] {ts_code} {name}: AKShare 无数据", "WARN")
+                continue
+
+            csv_path = DAILY_DIR / f"{ts_code}.csv"
+
+            # 读已有数据，找最新日期
+            existing_dates = set()
+            if csv_path.exists():
+                try:
+                    import pandas as pd
+                    edf = pd.read_csv(csv_path, usecols=["datetime"])
+                    existing_dates = set(str(d) for d in edf["datetime"])
+                except Exception:
+                    pass
+
+            # 追加新行
+            new_for_stock = 0
+            with open(csv_path, "a", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=["symbol", "datetime", "open", "high", "low", "close", "volume", "amount"])
+                if not csv_path.exists() or csv_path.stat().st_size == 0:
+                    writer.writeheader()
+
+                for _, row in df.iterrows():
+                    date_str = str(row.get("日期", ""))
+                    if not date_str or date_str in existing_dates:
+                        continue
+
+                    writer.writerow({
+                        "symbol": ts_code,
+                        "datetime": date_str,
+                        "open": row.get("开盘", ""),
+                        "high": row.get("最高", ""),
+                        "low": row.get("最低", ""),
+                        "close": row.get("收盘", ""),
+                        "volume": row.get("成交量", ""),
+                        "amount": row.get("成交额", ""),
+                    })
+                    new_for_stock += 1
+
+            total_new += new_for_stock
+            if new_for_stock > 0:
+                log(f"  [{i+1}/{len(stocks)}] {ts_code} {name}: +{new_for_stock} 行")
+
+        except Exception as e:
+            log(f"  [{i+1}/{len(stocks)}] {ts_code} {name}: 失败 - {e}", "WARN")
+            continue
+
+    log(f"定向补全完成: {total_new} 行")
+    return total_new
+
+
+def fetch_latest_day(dry_run: bool = False) -> int:
+    """仅拉取最新一个交易日的全量行情（AKShare）。"""
+    return fetch_from_akshare(dry_run)
+
+
+# ═════════════════════════════════════════════════════════════════════════════
 # Git 操作
 # ═════════════════════════════════════════════════════════════════════════════
 
@@ -374,50 +500,65 @@ def main():
     parser.add_argument("--no-push", action="store_true", help="拉取但不推送")
     parser.add_argument("--cron", action="store_true", help="定时任务模式（静默 + 仅增量）")
     parser.add_argument("--skip-validate", action="store_true", help="跳过数据校验")
+    parser.add_argument("--latest", action="store_true", help="仅拉取最新一个交易日（快捷模式）")
+    parser.add_argument("--from-report", help="根据 validate.py --missing-report 输出的 JSON 定向补全缺失数据")
     args = parser.parse_args()
 
     log("=== stock_data fetch & backup ===")
-    log(f"模式: {'FULL' if args.full else 'INCREMENTAL'} | 源: {args.source} | dry-run: {args.dry_run}")
+    if args.from_report:
+        log(f"模式: 定向补全 | 报告: {args.from_report}")
+    elif args.latest:
+        log("模式: 仅最新日")
+    else:
+        log(f"模式: {'FULL' if args.full else 'INCREMENTAL'} | 源: {args.source} | dry-run: {args.dry_run}")
 
     # ── Step 1: Pull latest from GitHub ──
-    if not args.dry_run:
+    if not args.dry_run and not args.from_report:
         log("[1/4] 同步远程...")
         git_pull()
 
     # ── Step 2: Fetch data ──
-    log("[2/4] 拉取数据...")
-    new_rows = 0
+    if args.from_report:
+        log("[2/4] 定向补全缺失数据...")
+        new_rows = fetch_from_report(args.from_report, args.dry_run)
+    elif args.latest:
+        log("[2/4] 拉取最新交易日...")
+        new_rows = fetch_latest_day(args.dry_run)
+    else:
+        log("[2/4] 拉取数据...")
+        new_rows = 0
 
-    if args.source in ("pg", "all"):
-        pg_rows = fetch_from_pg(args.dry_run, full=args.full)
-        new_rows += pg_rows
-        if isinstance(pg_rows, int) and pg_rows > 0:
-            log(f"  PG 导出完成, 获取 {pg_rows} 行")
+        if args.source in ("pg", "all"):
+            pg_rows = fetch_from_pg(args.dry_run, full=args.full)
+            if isinstance(pg_rows, int):
+                new_rows += pg_rows
+                if pg_rows > 0:
+                    log(f"  PG 导出完成")
 
-    if args.source in ("tushare", "all"):
-        if new_rows == 0:  # 仅当 PG 无数据时用 Tushare
-            ts_rows = fetch_from_tushare(args.dry_run)
-            new_rows += ts_rows
+        if args.source in ("tushare", "all"):
+            if new_rows == 0:
+                ts_rows = fetch_from_tushare(args.dry_run)
+                new_rows += ts_rows
 
-    if args.source in ("akshare", "all"):
-        if new_rows == 0:  # 最后备选
-            ak_rows = fetch_from_akshare(args.dry_run)
-            new_rows += ak_rows
+        if args.source in ("akshare", "all"):
+            if new_rows == 0:
+                ak_rows = fetch_from_akshare(args.dry_run)
+                new_rows += ak_rows
 
-    log(f"  数据拉取完成, 总新增: {new_rows} 行")
+    log(f"  数据拉取完成, 总新增: {new_rows} 行" if isinstance(new_rows, int) else f"  数据拉取完成")
 
     # ── Step 3: Validate ──
-    if not args.skip_validate and not args.dry_run and new_rows > 0:
+    if not args.skip_validate and not args.dry_run and (isinstance(new_rows, int) and new_rows > 0):
         log("[3/4] 校验数据...")
         try:
             r = subprocess.run(
-                [sys.executable, str(REPO / "validate.py"), "--quick", "--skip-git"],
+                [sys.executable, str(REPO / "validate.py"), "--quick"],
                 capture_output=True, text=True, cwd=REPO, timeout=300,
             )
             if r.returncode != 0:
                 log(f"校验发现问题:\n{r.stdout[-500:]}", "WARN")
             else:
-                log("校验通过")
+                log("校验通过 ✅")
         except Exception as e:
             log(f"校验失败: {e}", "WARN")
     else:

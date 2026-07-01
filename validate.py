@@ -1,375 +1,743 @@
 #!/usr/bin/env python3
-"""stock_data 数据完整性校验脚本
+"""stock_data 数据库级数据完整性校验脚本
 
-检查维度：
-  1. 文件级 — 存在性、大小、编码
-  2. Schema — 列名、类型、必填字段
-  3. 时序 — 日期连续性、重复、倒序
-  4. 行情 — OHLC 合理性、量价匹配
-  5. 交叉引用 — symbol 一致性
-  6. Git — 未跟踪大文件、未提交变更
+校验维度（默认查 PostgreSQL，支持 CSV 模式）：
+  1. 全局时间范围 — 各表是否覆盖 2006 ~ 今天
+  2. 日线逐标连续性 — 每个标的从上市到今天的覆盖情况
+  3. 退市股识别 — 上市中但数据陈旧 → 疑似退市未标记
+  4. 财报连续性 — 每只股票每年应有 4 份财报
+  5. 数据新鲜度 — 最后更新日期分布
+  6. OHLC 合理性 — 价格边界、空值
+  7. CSV 文件模式（可选）— 原有的文件级检查
 
 用法：
-  python validate.py                  # 全部检查
-  python validate.py --quick          # 快速抽查 (1%)
-  python validate.py --symbol 600519.SH  # 单标的
-  python validate.py --report report.json  # 输出 JSON 报告
+  python validate.py                        # DB 全面检查（默认）
+  python validate.py --source csv           # 仅检查 CSV 文件
+  python validate.py --source both          # 同时检查 DB 和 CSV
+  python validate.py --quick                # 快速抽查（跳过大查询）
+  python validate.py --symbol 600519.SH     # 单标的
+  python validate.py --report report.json   # 输出 JSON 报告
+  python validate.py --expected-start 2006  # 覆盖起点（默认2006）
 """
 
 from __future__ import annotations
 
 import argparse
-import csv
 import json
+import os
+import random
 import sys
+import time
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
 
+# ── 路径 ────────────────────────────────────────────────────────────────
 REPO = Path(__file__).parent
-DAILY = REPO / "daily"
-MARKET = REPO / "market"
-INDEX = REPO / "index"
-MACRO = REPO / "macro"
-META = REPO / "meta"
-FUND = REPO / "fundamental"
+DAILY_DIR = REPO / "daily"
+MARKET_DIR = REPO / "market"
+INDEX_DIR = REPO / "index"
+MACRO_DIR = REPO / "macro"
+META_DIR = REPO / "meta"
+FUND_DIR = REPO / "fundamental"
 
-STATUS_OK = "✅"
-STATUS_WARN = "⚠️"
-STATUS_ERR = "❌"
+# ── 状态图标 ─────────────────────────────────────────────────────────────
+OK = "✅"
+WARN = "⚠️"
+ERR = "❌"
 
+# ── 全局 ─────────────────────────────────────────────────────────────────
 all_issues: list[dict] = []
+missing_data: dict = {
+    "generated_at": "",
+    "daily_gaps": [],      # 日线缺失明细
+    "financial_gaps": {},   # 财报缺失明细 (per table)
+    "table_gaps": [],       # 表级时间落后
+    "no_data_stocks": [],   # 完全无日线的标的
+    "summary": {},          # 汇总
+}
+start_time = time.time()
+TODAY = date.today()
 
 
 def issue(level: str, category: str, item: str, detail: str = ""):
+    """记录一个检查项"""
     all_issues.append({"level": level, "category": category, "item": item, "detail": detail})
-    icon = {"OK": STATUS_OK, "WARN": STATUS_WARN, "ERR": STATUS_ERR}[level]
-    print(f"  {icon} [{category}] {item}" + (f" — {detail}" if detail else ""))
+    icon = {"OK": OK, "WARN": WARN, "ERR": ERR}[level]
+    msg = f"  {icon} [{category}] {item}"
+    if detail:
+        msg += f" — {detail}"
+    print(msg)
 
 
-# ═════════════════════════════════════════════════════════════════════════════
-# 1. 文件级检查
-# ═════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
+# PostgreSQL 连接
+# ═══════════════════════════════════════════════════════════════════════════
 
-def check_files_exist():
-    print("\n── 文件存在性 ──")
-    dirs = {"daily": DAILY, "meta": META, "macro": MACRO, "index": INDEX, "fundamental": FUND}
-    for name, d in dirs.items():
-        if not d.exists():
-            issue("ERR", "exist", name, "目录不存在")
-        elif name == "daily":
-            cnt = len(list(d.glob("*.csv")))
-            issue("OK", "exist", f"daily/ ({cnt:,} CSV)")
-        else:
-            cnt = len(list(d.glob("*.csv")))
-            issue("OK", "exist", f"{name}/ ({cnt} CSV)")
+class PostgresDB:
+    """PostgreSQL 连接封装"""
 
+    def __init__(self):
+        self.conn = None
+        self.available = False
+        self._connect()
 
-def check_empty_files():
-    print("\n── 空文件检查 ──")
-    empty_count = 0
-    for d in [DAILY, INDEX, MACRO, META]:
-        if not d.exists():
-            continue
-        for f in d.glob("*.csv"):
-            sz = f.stat().st_size
-            if sz == 0:
-                issue("ERR", "empty", str(f.relative_to(REPO)))
-                empty_count += 1
-            elif sz < 50:
-                issue("WARN", "tiny", str(f.relative_to(REPO)), f"仅 {sz} bytes")
-                empty_count += 1
-    if empty_count == 0:
-        issue("OK", "empty", "无空文件")
-
-
-# ═════════════════════════════════════════════════════════════════════════════
-# 2. Schema 检查
-# ═════════════════════════════════════════════════════════════════════════════
-
-DAILY_REQUIRED = {"symbol", "datetime", "open", "high", "low", "close", "volume", "amount"}
-INDEX_REQUIRED = {"trade_date", "open", "high", "low", "close"}
-
-
-def check_daily_schema(symbols: list[str] | None = None):
-    print("\n── Daily Schema ──")
-    files = sorted(DAILY.glob("*.csv"))
-    if symbols:
-        files = [DAILY / f"{s}.csv" for s in symbols if (DAILY / f"{s}.csv").exists()]
-    bad = 0
-    for f in files:
+    def _connect(self):
         try:
-            df = pd.read_csv(f, nrows=1)
-            cols = set(df.columns)
-            missing = DAILY_REQUIRED - cols
-            if missing:
-                issue("ERR", "schema", f.name, f"缺列: {missing}")
-                bad += 1
+            import psycopg2
+            import psycopg2.extras
+            self.conn = psycopg2.connect(
+                host=os.environ.get("PGHOST", "/tmp"),
+                dbname=os.environ.get("PGDATABASE", "investassist"),
+                user=os.environ.get("PGUSER", "james"),
+                password=os.environ.get("PGPASSWORD", ""),
+                connect_timeout=5,
+            )
+            self.conn.autocommit = True
+            self.available = True
         except Exception as e:
-            issue("ERR", "schema", f.name, str(e))
-            bad += 1
-    if bad == 0 and files:
-        issue("OK", "schema", f"daily/ ({len(files)} 文件列结构正确)")
+            print(f"[DB] PostgreSQL 不可用: {e}")
+            self.available = False
 
-
-def check_index_schema():
-    print("\n── Index Schema ──")
-    bad = 0
-    for f in sorted(INDEX.glob("*.csv")):
+    def query(self, sql: str, params: tuple = None) -> list[dict]:
+        """执行查询，返回 dict 列表"""
+        import psycopg2.extras
+        cur = self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
-            df = pd.read_csv(f, nrows=1)
-            missing = INDEX_REQUIRED - set(df.columns)
-            if missing:
-                issue("ERR", "schema", f.name, f"缺列: {missing}")
-                bad += 1
-        except Exception as e:
-            issue("ERR", "schema", f.name, str(e))
-            bad += 1
-    if bad == 0:
-        issue("OK", "schema", f"index/ ({len(list(INDEX.glob('*.csv')))} 文件)")
+            cur.execute(sql, params)
+            rows = cur.fetchall()
+            return rows
+        finally:
+            cur.close()
 
-# ═════════════════════════════════════════════════════════════════════════════
-# 3. 数据完整性检查
-# ═════════════════════════════════════════════════════════════════════════════
+    def query_scalar(self, sql: str, params: tuple = None):
+        """执行查询，返回单个标量值"""
+        cur = self.conn.cursor()
+        cur.execute(sql, params or ())
+        val = cur.fetchone()
+        cur.close()
+        return val[0] if val else None
 
-def check_daily_integrity(symbols: list[str] | None = None, quick: bool = False):
-    print("\n── Daily 数据完整性 ──")
-    files = sorted(DAILY.glob("*.csv"))
-    if symbols:
-        files = [DAILY / f"{s}.csv" for s in symbols if (DAILY / f"{s}.csv").exists()]
-    if quick:
-        import random
-        sample_size = max(10, int(len(files) * 0.01))
-        files = random.sample(files, min(sample_size, len(files)))
-        print(f"  (快速模式: 抽查 {len(files)}/{len(list(DAILY.glob('*.csv')))} 个文件)")
 
-    dup_count = 0
-    date_order_issues = 0
-    ohlc_issues = 0
-    na_count = 0
-    total_rows = 0
+# ═══════════════════════════════════════════════════════════════════════════
+# 1. 全局时间范围
+# ═══════════════════════════════════════════════════════════════════════════
 
-    for f in files:
+def check_table_ranges(db: PostgresDB, expected_start: int):
+    """检查各核心表的时间覆盖范围"""
+    print("\n── 各表时间范围 ──")
+
+    tables = {
+        "daily_quote": ("日线行情", "trade_date"),
+        "income": ("利润表", "report_year"),
+        "balance_sheet": ("资产负债表", "report_year"),
+        "cashflow": ("现金流量表", "report_year"),
+        "financial_indicator": ("财务指标", "report_year"),
+        "stock_valuation": ("估值数据", "valuation_year"),
+        "index_daily": ("指数日线", "trade_date"),
+        "stocks": ("股票列表", "list_date"),
+    }
+
+    for tbl, (name, date_col) in tables.items():
         try:
-            df = pd.read_csv(f, parse_dates=["datetime"])
-            total_rows += len(df)
+            if date_col in ("trade_date", "list_date"):
+                min_d = db.query_scalar(f"SELECT MIN({date_col}) FROM {tbl}")
+                max_d = db.query_scalar(f"SELECT MAX({date_col}) FROM {tbl}")
+                cnt = db.query_scalar(f"SELECT COUNT(*) FROM {tbl}")
+            else:
+                min_d = db.query_scalar(f"SELECT MIN({date_col}) FROM {tbl}")
+                max_d = db.query_scalar(f"SELECT MAX({date_col}) FROM {tbl}")
+                cnt = db.query_scalar(f"SELECT COUNT(*) FROM {tbl}")
 
-            # 重复
-            dups = df.duplicated(subset=["datetime"]).sum()
-            if dups > 0:
-                issue("WARN", "dup", f.name, f"{dups} 个重复日期")
-                dup_count += 1
+            min_s, max_s = str(min_d or "N/A"), str(max_d or "N/A")
 
-            # 日期排序
-            if not df["datetime"].is_monotonic_increasing:
-                issue("WARN", "order", f.name, "日期未严格递增")
-                date_order_issues += 1
+            max_val = None
+            if max_d:
+                if isinstance(max_d, (date, datetime)):
+                    max_val = max_d if isinstance(max_d, date) else max_d.date()
+                elif isinstance(max_d, (int, float)):
+                    max_val = date(int(max_d), 12, 31)
 
-            # OHLC 合理性
-            ohlc_bad = df[
-                (df["high"] < df["low"]) |
-                (df["open"] < 0) | (df["high"] < 0) |
-                (df["low"] < 0) | (df["close"] < 0)
-            ]
-            if len(ohlc_bad) > 0:
-                issue("ERR", "ohlc", f.name, f"{len(ohlc_bad)} 行 OHLC 不合理")
-                ohlc_issues += 1
+            expected_end = date(2026, 7, 1)
+            if max_val and (expected_end - max_val).days <= 5:
+                level = "OK"
+                detail = f"{min_s} ~ {max_s}  |  {cnt:,} 行"
+            elif max_val:
+                days_behind = (expected_end - max_val).days
+                level = "WARN"
+                detail = f"{min_s} ~ {max_s}  |  {cnt:,} 行  |  落后 {days_behind} 天"
+                missing_data["table_gaps"].append({
+                    "table": tbl,
+                    "name": name,
+                    "min_date": min_s,
+                    "max_date": max_s,
+                    "expected_end": str(expected_end),
+                    "days_behind": days_behind,
+                    "row_count": cnt,
+                })
+            else:
+                level = "WARN"
+                detail = f"{min_s} ~ {max_s}  |  {cnt:,} 行"
 
-            # 空值
-            na = df.isna().sum().sum()
-            if na > 0:
-                issue("WARN", "na", f.name, f"{na} 个空值")
-                na_count += 1
+            issue(level, "range", f"{name} ({tbl})", detail)
 
         except Exception as e:
-            issue("ERR", "read", f.name, str(e))
-
-    print(f"  合计: {len(files)} 文件, {total_rows:,} 行")
-    print(f"  重复: {dup_count} | 排序: {date_order_issues} | OHLC异常: {ohlc_issues} | 空值: {na_count}")
+            issue("ERR", "range", tbl, str(e))
 
 
-def check_date_continuity(symbols: list[str] | None = None, max_gap_days: int = 10):
-    """检查日期间隔是否合理（交易日内允许 gap <= max_gap_days 日历天）"""
-    print(f"\n── 交易日历连续性 (最大间隔 {max_gap_days} 天) ──")
-    files = sorted(DAILY.glob("*.csv"))
-    if symbols:
-        files = [DAILY / f"{s}.csv" for s in symbols if (DAILY / f"{s}.csv").exists()]
+# ═══════════════════════════════════════════════════════════════════════════
+# 2. 日线逐标连续性（核心检查）
+# ═══════════════════════════════════════════════════════════════════════════
 
-    gap_issues = 0
-    for f in files[:500]:  # 抽样前500个避免太慢
-        try:
-            df = pd.read_csv(f, parse_dates=["datetime"])
-            dates = pd.to_datetime(df["datetime"]).dropna().sort_values()
-            if len(dates) < 2:
+def check_daily_per_stock(db: PostgresDB, expected_start: int, quick: bool = False, symbol: str = None):
+    """检查每只股票的日线数据连续性
+
+    规则：
+    - 上市中 + 数据到 2026-06-18 以后 → 正常
+    - 上市中 + 数据早于 2026-06-01 → 需排查（退市未标记 or 数据缺失）
+    - 已退市 → 数据应到退市日
+    """
+    print("\n── 日线逐标连续性 ──")
+
+    try:
+        # 获取每只股票的元数据 + 日线覆盖
+        where_clause = ""
+        if symbol:
+            where_clause = f"WHERE s.ts_code = '{symbol}'"
+
+        # 找数据陈旧但标记为"上市中"的股票
+        sql = f"""
+        WITH stock_dq AS (
+            SELECT ts_code, MIN(trade_date) as first_date, MAX(trade_date) as last_date, COUNT(*) as days
+            FROM daily_quote
+            GROUP BY ts_code
+        )
+        SELECT
+            s.ts_code,
+            s.name,
+            s.list_date::text,
+            s.delist_date::text,
+            s.list_status,
+            s.exchange,
+            COALESCE(sd.first_date::text, '无数据') as first_date,
+            COALESCE(sd.last_date::text, '无数据') as last_date,
+            COALESCE(sd.days, 0) as trading_days
+        FROM stocks s
+        LEFT JOIN stock_dq sd ON s.ts_code = sd.ts_code
+        {where_clause}
+        ORDER BY sd.last_date DESC NULLS LAST
+        """
+
+        rows = db.query(sql)
+
+        if quick and not symbol:
+            # 抽查 200 只
+            sample_size = min(200, len(rows))
+            rows = random.sample(rows, sample_size)
+            print(f"  (快速模式: 抽查 {sample_size}/{len(rows)} 只)")
+
+        total = len(rows)
+        no_data = []
+        stale_active = []  # 上市中但数据陈旧
+        ok_active = 0
+        delisted_ok = 0
+        delisted_stale = []
+
+        cutoff_stale = date(2026, 6, 1)  # 超过此日期未更新 → 视为陈旧
+
+        for r in rows:
+            ts = r["ts_code"]
+            name = r["name"]
+            last_d = r["last_date"]
+            list_d = r["list_date"]
+            delist_d = r["delist_date"]
+            status = r["list_status"]
+
+            if last_d == "无数据":
+                no_data.append((ts, name))
                 continue
-            gaps = dates.diff().dropna()
-            big_gaps = gaps[gaps > timedelta(days=max_gap_days)]
-            if len(big_gaps) > 0:
-                issue("WARN", "gap", f.name, f"{len(big_gaps)} 处间隔 > {max_gap_days} 天 (最大 {big_gaps.max().days} 天)")
-                gap_issues += 1
-        except Exception:
-            pass
 
-    if gap_issues == 0:
-        issue("OK", "gap", "前500文件日期连续性良好")
+            last_date = date.fromisoformat(last_d)
 
+            if delist_d and delist_d != "None":
+                # 已退市
+                delist_date = date.fromisoformat(delist_d)
+                if (delist_date - last_date).days > 30:
+                    delisted_stale.append((ts, name, last_d, delist_d))
+                else:
+                    delisted_ok += 1
+            else:
+                # 上市中
+                if last_date >= cutoff_stale:
+                    ok_active += 1
+                else:
+                    stale_active.append((ts, name, last_d, list_d or "N/A", r["trading_days"]))
 
-def check_cross_ref():
-    """检查 daily 中的 symbol 是否在 stock_basic 或 index 中能找到"""
-    print("\n── 交叉引用 ──")
-    stock_file = META / "stock_basic.csv"
-    if not stock_file.exists():
-        issue("WARN", "xref", "stock_basic.csv 不存在，跳过交叉引用")
-        return
+        # ── 汇报 ──
+        issue("OK", "daily", f"上市中且数据新鲜", f"{ok_active} 只")
 
-    try:
-        stock_df = pd.read_csv(stock_file)
-        stock_symbols = set(stock_df["ts_code"].astype(str))
-    except Exception:
-        issue("WARN", "xref", "stock_basic.csv 读取失败")
-        return
+        if delisted_ok > 0:
+            issue("OK", "daily", f"已退市数据正常", f"{delisted_ok} 只")
 
-    index_files = set(f.stem for f in INDEX.glob("*.csv"))
-    daily_files = list(DAILY.glob("*.csv"))
-    daily_symbols = set(f.stem for f in daily_files)
+        if stale_active:
+            # 分档
+            ancient = [(t, n, ld) for t, n, ld, _, _ in stale_active if ld < "2010-01-01"]
+            recent_stale = [(t, n, ld) for t, n, ld, _, _ in stale_active if ld >= "2010-01-01"]
+            hk_stale = [(t, n, ld) for t, n, ld, _, _ in stale_active if t.endswith(".HK")]
 
-    orphan = daily_symbols - stock_symbols - index_files
-    if orphan:
-        issue("WARN", "xref", f"{len(orphan)} 个 daily 标的未在 stock_basic/index 中找到", str(sorted(list(orphan))[:10]))
-    else:
-        issue("OK", "xref", "daily 标的全部可追溯到 stock_basic 或 index")
+            # 填充 missing_data
+            for ts, name, last_d, list_d, days in stale_active:
+                try:
+                    ldate = date.fromisoformat(last_d)
+                    days_behind = (TODAY - ldate).days
+                except Exception:
+                    days_behind = 999
+                missing_data["daily_gaps"].append({
+                    "ts_code": ts,
+                    "name": name,
+                    "last_date": last_d,
+                    "list_date": list_d or "N/A",
+                    "trading_days": days,
+                    "days_behind": days_behind,
+                    "reason": "港股滞后" if ts.endswith(".HK") else
+                              ("已退市(未标记)" if last_d < "2010-01-01" else "数据滞后"),
+                })
 
+            issue(
+                "ERR" if len(stale_active) > 50 else "WARN",
+                "daily",
+                f"上市中但数据陈旧",
+                f"{len(stale_active)} 只",
+            )
 
-# ═════════════════════════════════════════════════════════════════════════════
-# 4. Fundamental 检查
-# ═════════════════════════════════════════════════════════════════════════════
+            if ancient:
+                names = ", ".join(f"{t}({n})" for t, n, ld in ancient[:8])
+                issue("WARN", "daily", f"  → 疑似退市未标记 (停更早于2010)", f"{len(ancient)} 只: {names}")
+            if hk_stale:
+                names = ", ".join(f"{t}({n})" for t, n, ld in hk_stale[:5])
+                issue("WARN", "daily", f"  → 港股数据滞后", f"{len(hk_stale)} 只: {names}")
+            if recent_stale:
+                names = ", ".join(f"{t}({n})" for t, n, ld in recent_stale[:5])
+                issue("WARN", "daily", f"  → A股数据滞后 (>1个月)", f"{len(recent_stale)} 只: {names}")
 
-def check_fundamental():
-    print("\n── Fundamental 检查 ──")
-    if not FUND.exists():
-        issue("WARN", "fundamental", "目录不存在")
-        return
-    for sub in sorted(FUND.iterdir()):
-        if not sub.is_dir():
-            continue
-        csvs = sorted(sub.glob("*.csv"))
-        if not csvs:
-            issue("WARN", "fundamental", sub.name, "无数据")
-            continue
-        # 检查最新文件行数
-        latest = csvs[-1]
-        try:
-            n = sum(1 for _ in open(latest)) - 1  # 减去表头
-            issue("OK", "fundamental", f"{sub.name} ({len(csvs)} 期)", f"最新期 {n:,} 行")
-        except Exception as e:
-            issue("ERR", "fundamental", f"{sub.name}/{latest.name}", str(e))
+        if delisted_stale:
+            names = ", ".join(f"{t}({n})" for t, n, ld, dd in delisted_stale[:5])
+            issue("WARN", "daily", f"已退市但数据未到退市日", f"{len(delisted_stale)} 只: {names}")
 
+        if no_data:
+            names = ", ".join(f"{t}({n})" for t, n in no_data[:10])
+            issue("ERR", "daily", f"无日线数据", f"{len(no_data)} 只: {names}")
+            for ts, name in no_data:
+                missing_data["no_data_stocks"].append({
+                    "ts_code": ts,
+                    "name": name,
+                    "reason": "港股无数据" if ts.endswith(".HK") else "无日线记录",
+                })
 
-# ═════════════════════════════════════════════════════════════════════════════
-# 5. Market parquet 检查
-# ═════════════════════════════════════════════════════════════════════════════
+        print(f"\n  总计: {total} 上市中新鲜 {ok_active} | 陈旧 {len(stale_active)} | 无数据 {len(no_data)}")
 
-def check_market():
-    print("\n── Market Parquet 检查 ──")
-    if not MARKET.exists():
-        issue("OK", "market", "目录不存在（正常，由 daily 派生）")
-        return
-    files = sorted(MARKET.glob("*.parquet"))
-    if not files:
-        issue("OK", "market", "无文件")
-        return
-
-    import pyarrow.parquet as pq
-    bad = 0
-    total_rows = 0
-    for f in files[:100]:  # 抽查100个
-        try:
-            t = pq.read_table(f)
-            total_rows += t.num_rows
-        except Exception as e:
-            issue("ERR", "market", f.name, str(e))
-            bad += 1
-    issue("OK", "market", f"{len(files):,} 文件 (抽查通过)" if bad == 0 else f"{bad} 损坏")
-
-
-# ═════════════════════════════════════════════════════════════════════════════
-# 6. Git 状态检查
-# ═════════════════════════════════════════════════════════════════════════════
-
-def check_git():
-    print("\n── Git 状态 ──")
-    import subprocess
-    try:
-        r = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True, cwd=REPO, timeout=10)
-        if r.returncode != 0:
-            issue("WARN", "git", f"git status 返回 {r.returncode}")
-            return
-        lines = [l for l in r.stdout.strip().split("\n") if l]
-        if not lines:
-            issue("OK", "git", "工作区干净")
-            return
-        # 检查是否有不该跟踪的大文件
-        untracked = [l for l in lines if l.startswith("??")]
-        modified = [l for l in lines if l.startswith(" M") or l.startswith("M ")]
-        if untracked:
-            issue("WARN", "git", f"{len(untracked)} 个未跟踪文件", ", ".join(l[3:] for l in untracked[:5]))
-        if modified:
-            issue("WARN", "git", f"{len(modified)} 个已修改文件", ", ".join(l[3:] for l in modified[:5]))
-    except FileNotFoundError:
-        issue("WARN", "git", "git 不可用")
     except Exception as e:
-        issue("WARN", "git", str(e))
+        issue("ERR", "daily", "逐标检查失败", str(e))
 
 
-# ═════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
+# 3. 日线数据新鲜度分布
+# ═══════════════════════════════════════════════════════════════════════════
+
+def check_daily_freshness(db: PostgresDB, quick: bool = False):
+    """按最后更新日期分组统计"""
+    if quick:
+        return
+
+    print("\n── 日线新鲜度分布 ──")
+
+    try:
+        sql = """
+        WITH last_dates AS (
+            SELECT ts_code, MAX(trade_date) as last_date
+            FROM daily_quote
+            GROUP BY ts_code
+        )
+        SELECT
+            CASE
+                WHEN last_date >= CURRENT_DATE - INTERVAL '3 days' THEN '0-2天前'
+                WHEN last_date >= CURRENT_DATE - INTERVAL '7 days' THEN '3-7天前'
+                WHEN last_date >= CURRENT_DATE - INTERVAL '14 days' THEN '8-14天前'
+                WHEN last_date >= '2026-06-01' THEN '6月'
+                WHEN last_date >= '2026-01-01' THEN '今年较早'
+                WHEN last_date >= '2020-01-01' THEN '2020-2025'
+                ELSE '2020以前'
+            END as freshness,
+            COUNT(*) as cnt
+        FROM last_dates
+        GROUP BY freshness
+        ORDER BY MIN(last_date) DESC
+        """
+        rows = db.query(sql)
+
+        total = sum(r["cnt"] for r in rows)
+        for r in rows:
+            pct = r["cnt"] / total * 100 if total else 0
+            level = "WARN" if r["freshness"] in ("今年较早", "2020-2025", "2020以前") else "OK"
+            issue(level, "freshness", r["freshness"], f"{r['cnt']:,} 只 ({pct:.1f}%)")
+
+    except Exception as e:
+        issue("ERR", "freshness", "查询失败", str(e))
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 4. OHLC 数据质量（PostgreSQL）
+# ═══════════════════════════════════════════════════════════════════════════
+
+def check_ohlc_quality(db: PostgresDB):
+    """检查 PostgreSQL 中日线数据的 OHLC 合理性"""
+    print("\n── OHLC 数据质量 (PostgreSQL) ──")
+
+    try:
+        # 负值 / 零值
+        neg = db.query_scalar("""
+            SELECT COUNT(*) FROM daily_quote
+            WHERE open <= 0 OR high <= 0 OR low <= 0 OR close <= 0
+        """)
+        if neg:
+            issue("ERR", "ohlc", "负值或零值价格", f"{neg:,} 行")
+        else:
+            issue("OK", "ohlc", "无负价或零价")
+
+        # high < low
+        hl = db.query_scalar("""
+            SELECT COUNT(*) FROM daily_quote WHERE high < low
+        """)
+        if hl:
+            issue("ERR", "ohlc", "high < low", f"{hl:,} 行")
+        else:
+            issue("OK", "ohlc", "high ≥ low 全部正确")
+
+        # 涨跌幅异常（>20% 单日）
+        extreme = db.query_scalar("""
+            SELECT COUNT(*) FROM daily_quote WHERE ABS(pct_chg) > 20
+        """)
+        if extreme:
+            issue("WARN", "ohlc", "涨跌幅 > ±20%", f"{extreme:,} 行（可能含除权或数据异常）")
+
+        # NULL 值
+        nulls = db.query_scalar("""
+            SELECT COUNT(*) FROM daily_quote
+            WHERE open IS NULL OR high IS NULL OR low IS NULL OR close IS NULL
+        """)
+        if nulls:
+            issue("WARN", "ohlc", "OHLC 含 NULL", f"{nulls:,} 行")
+        else:
+            issue("OK", "ohlc", "OHLC 无 NULL")
+
+    except Exception as e:
+        issue("ERR", "ohlc", "查询失败", str(e))
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 5. 财报连续性
+# ═══════════════════════════════════════════════════════════════════════════
+
+def check_financial_continuity(db: PostgresDB, expected_start: int):
+    """检查每只股票的财报报告期是否连续"""
+    print(f"\n── 财报连续性 (利润表/资产负债表/现金流, {expected_start}～{TODAY.year}) ──")
+
+    tables = {
+        "income": "利润表",
+        "balance_sheet": "资产负债表",
+        "cashflow": "现金流量表",
+    }
+
+    # 当前年份预期报告期数（A股财报截止日：Q1=4/30, Q2=8/31, Q3=10/31, 年报=次年4/30）
+    current_month = TODAY.month
+    if current_month <= 4:
+        current_year_expected = 0  # 当年尚无截止的报表
+    elif current_month <= 8:
+        current_year_expected = 1  # Q1 已截止
+    elif current_month <= 10:
+        current_year_expected = 2  # Q1+Q2 已截止
+    else:
+        current_year_expected = 3  # Q1+Q2+Q3 已截止（年报次年才出）
+
+    for tbl, name in tables.items():
+        try:
+            # 简化：只查 A 股（沪深北），不包含港股
+            sql = f"""
+            WITH yearly AS (
+                SELECT ts_code, report_year, COUNT(*) as reports
+                FROM {tbl}
+                WHERE report_year >= {expected_start}
+                GROUP BY ts_code, report_year
+            ),
+            stock_years AS (
+                SELECT
+                    s.ts_code, s.name, s.exchange,
+                    GENERATE_SERIES(
+                        GREATEST({expected_start}, EXTRACT(YEAR FROM s.list_date)::int),
+                        LEAST({TODAY.year}, COALESCE(EXTRACT(YEAR FROM s.delist_date)::int, {TODAY.year}))
+                    ) as report_year
+                FROM stocks s
+                WHERE s.list_date IS NOT NULL
+                  AND (s.exchange IN ('SSE', 'SZSE', 'BSE')
+                       OR s.ts_code LIKE '%.SH' OR s.ts_code LIKE '%.SZ' OR s.ts_code LIKE '%.BJ')
+            ),
+            joined AS (
+                SELECT sy.*, COALESCE(yr.reports, 0) as actual_reports
+                FROM stock_years sy
+                LEFT JOIN yearly yr ON sy.ts_code = yr.ts_code AND sy.report_year = yr.report_year
+            )
+            SELECT
+                ts_code, name,
+                report_year,
+                actual_reports
+            FROM joined
+            ORDER BY ts_code, report_year
+            """
+
+            rows = db.query(sql)
+            if not rows:
+                issue("OK", "financial", name, "无数据或全部完整")
+                continue
+
+            # Python 侧聚合
+            stock_data = defaultdict(lambda: {"name": "", "years": {}, "missing_years": 0, "partial_years": 0})
+            for r in rows:
+                ts = r["ts_code"]
+                sd = stock_data[ts]
+                sd["name"] = r["name"]
+                yr = r["report_year"]
+                actual = r["actual_reports"]
+                expected = 4 if yr < TODAY.year else current_year_expected
+                sd["years"][yr] = (actual, expected)
+
+            # 统计
+            incomplete = []
+            for ts_code, sd in stock_data.items():
+                missing = sum(1 for yr, (act, exp) in sd["years"].items() if act == 0)
+                partial = sum(1 for yr, (act, exp) in sd["years"].items() if 0 < act < exp)
+                if missing > 0 or partial > 0:
+                    incomplete.append({
+                        "ts_code": ts_code,
+                        "name": sd["name"],
+                        "missing_years": missing,
+                        "partial_years": partial,
+                    })
+
+            if not incomplete:
+                issue("OK", "financial", name, f"{len(stock_data)} 只 A股全部完整")
+                missing_data["financial_gaps"][tbl] = []
+            else:
+                severe = [r for r in incomplete if r["missing_years"] > 0]
+                partial_only = [r for r in incomplete if r["missing_years"] == 0]
+
+                # 填充 missing_data
+                missing_data["financial_gaps"][tbl] = [
+                    {
+                        "ts_code": r["ts_code"],
+                        "name": r["name"],
+                        "missing_years": r["missing_years"],
+                        "partial_years": r["partial_years"],
+                        "severity": "missing" if r["missing_years"] > 0 else "partial",
+                    }
+                    for r in incomplete
+                ]
+
+                issue(
+                    "WARN",
+                    "financial",
+                    name,
+                    f"{len(incomplete)}/{len(stock_data)} 只不完整 ({len(severe)} 缺年份, {len(partial_only)} 缺季度)",
+                )
+                if severe:
+                    names = ", ".join(f"{r['ts_code']}({r['name']}缺{r['missing_years']}年)" for r in severe[:5])
+                    issue("WARN", "financial", f"  → 缺整年报表 ({len(severe)} 只)", names)
+                if partial_only:
+                    names = ", ".join(f"{r['ts_code']}({r['name']}缺{r['partial_years']}季)" for r in partial_only[:3])
+                    issue("WARN", "financial", f"  → 缺季度报表 ({len(partial_only)} 只)", names)
+
+        except Exception as e:
+            issue("ERR", "financial", name, str(e))
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 6. 交易日历完整性
+# ═══════════════════════════════════════════════════════════════════════════
+
+def check_trade_cal(db: PostgresDB, expected_start: int):
+    """检查 trade_cal 表是否覆盖应有的交易日"""
+    print("\n── 交易日历 ──")
+
+    try:
+        cnt = db.query_scalar("SELECT COUNT(*) FROM trade_cal")
+        min_d = db.query_scalar("SELECT MIN(cal_date) FROM trade_cal")
+        max_d = db.query_scalar("SELECT MAX(cal_date) FROM trade_cal")
+        is_open = db.query_scalar("SELECT COUNT(*) FROM trade_cal WHERE is_open::int = 1")
+
+        if cnt:
+            issue("OK", "trade_cal", "交易日历", f"{cnt:,} 天 ({min_d} ~ {max_d}), {is_open:,} 交易日")
+        else:
+            issue("WARN", "trade_cal", "交易日历", "无数据")
+    except Exception as e:
+        issue("WARN", "trade_cal", "查询失败", str(e))
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 7. CSV 文件模式检查（保留原有功能）
+# ═══════════════════════════════════════════════════════════════════════════
+
+DAILY_REQUIRED_COLS = {"symbol", "datetime", "open", "high", "low", "close", "volume", "amount"}
+
+
+def check_csv_files(quick: bool = False, symbol_filter: str = None):
+    """CSV 文件级完整性检查"""
+    print("\n── [CSV模式] 文件检查 ──")
+
+    # 目录存在性
+    for name, d in [("daily", DAILY_DIR), ("meta", META_DIR), ("macro", MACRO_DIR),
+                     ("index", INDEX_DIR), ("fundamental", FUND_DIR)]:
+        if d.exists():
+            cnt = len(list(d.glob("*.csv")))
+            issue("OK", "csv-exist", f"{name}/", f"{cnt} 文件")
+        else:
+            issue("ERR", "csv-exist", name, "目录不存在")
+
+    # Daily schema
+    files = sorted(DAILY_DIR.glob("*.csv"))
+    if symbol_filter:
+        files = [f for f in files if f.stem == symbol_filter]
+    if quick:
+        sample = max(10, int(len(files) * 0.05))
+        files = random.sample(files, min(sample, len(files)))
+        print(f"  (抽查 {len(files)} 个文件)")
+
+    bad_schema = 0
+    for f in files:
+        try:
+            df = pd.read_csv(f, nrows=1)
+            missing = DAILY_REQUIRED_COLS - set(df.columns)
+            if missing:
+                issue("ERR", "csv-schema", f.name, f"缺列: {missing}")
+                bad_schema += 1
+        except Exception as e:
+            issue("ERR", "csv-schema", f.name, str(e))
+            bad_schema += 1
+    if bad_schema == 0 and files:
+        issue("OK", "csv-schema", "daily/", f"{len(files)} 文件 Schema 正确")
+
+    # Fundamental
+    if FUND_DIR.exists():
+        for sub in sorted(FUND_DIR.iterdir()):
+            if not sub.is_dir():
+                continue
+            csvs = sorted(sub.glob("*.csv"))
+            if csvs:
+                n = sum(1 for _ in open(csvs[-1])) - 1
+                issue("OK", "csv-fund", f"{sub.name} ({len(csvs)} 期)", f"最新 {n:,} 行")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # 主入口
-# ═════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="stock_data 数据完整性校验")
+    parser = argparse.ArgumentParser(description="stock_data 数据库级完整性校验")
     parser.add_argument("--quick", action="store_true", help="快速抽查")
     parser.add_argument("--symbol", help="只检查指定标的")
-    parser.add_argument("--skip-git", action="store_true", help="跳过 git 检查")
+    parser.add_argument("--source", choices=["db", "csv", "both"], default="db",
+                        help="校验数据源: db(默认), csv, both")
+    parser.add_argument("--expected-start", type=int, default=2006,
+                        help="预期数据起始年份 (默认2006)")
+    parser.add_argument("--skip-ohlc", action="store_true", help="跳过 OHLC 检查")
+    parser.add_argument("--skip-financial", action="store_true", help="跳过财报连续性检查")
     parser.add_argument("--report", help="输出 JSON 报告文件")
+    parser.add_argument("--missing-report", help="输出缺失数据明细 JSON，供 fetch_and_backup.py --from-report 使用")
     args = parser.parse_args()
 
-    print(f"=== stock_data 完整性校验 ===\n仓库: {REPO}\n时间: {date.today()}")
-    if args.quick:
-        print("模式: 快速抽查")
+    print(f"{'='*60}")
+    print(f"stock_data 数据完整性校验")
+    print(f"时间: {TODAY}")
+    print(f"模式: {args.source}" + (" (快速)" if args.quick else ""))
+    print(f"预期覆盖: {args.expected_start} ~ {TODAY}")
+    if args.symbol:
+        print(f"标的: {args.symbol}")
+    print(f"{'='*60}")
 
-    symbols = [args.symbol] if args.symbol else None
+    # ── DB 模式 ──
+    if args.source in ("db", "both"):
+        db = PostgresDB()
+        if not db.available:
+            print("\n❌ PostgreSQL 不可用，无法执行数据库检查")
+            if args.source == "db":
+                sys.exit(1)
+        else:
+            check_table_ranges(db, args.expected_start)
+            check_daily_per_stock(db, args.expected_start, quick=args.quick, symbol=args.symbol)
+            if not args.skip_ohlc:
+                check_ohlc_quality(db)
+            check_daily_freshness(db, quick=args.quick)
 
-    check_files_exist()
-    check_empty_files()
-    check_daily_schema(symbols)
-    check_index_schema()
-    check_daily_integrity(symbols, quick=args.quick)
-    if not args.quick:
-        check_date_continuity(symbols)
-    check_cross_ref()
-    check_fundamental()
-    check_market()
-    if not args.skip_git:
-        check_git()
+            if not args.skip_financial and not args.quick:
+                check_financial_continuity(db, args.expected_start)
 
-    # 摘要
+            check_trade_cal(db, args.expected_start)
+
+    # ── CSV 模式 ──
+    if args.source in ("csv", "both"):
+        check_csv_files(quick=args.quick, symbol_filter=args.symbol)
+
+    # ── 摘要 ──
+    elapsed = time.time() - start_time
     errs = sum(1 for i in all_issues if i["level"] == "ERR")
     warns = sum(1 for i in all_issues if i["level"] == "WARN")
-    print(f"\n{'='*50}")
-    print(f"摘要: {STATUS_ERR} {errs} 错误  {STATUS_WARN} {warns} 警告  {STATUS_OK} 通过")
+    oks = sum(1 for i in all_issues if i["level"] == "OK")
 
+    print(f"\n{'='*60}")
+    print(f"校验完成  |  耗时 {elapsed:.1f}s  |  {ERR} {errs} 错误  {WARN} {warns} 警告  {OK} {oks} 通过")
+    print(f"{'='*60}")
+
+    # ── JSON 报告 ──
     if args.report:
         report = {
             "repo": str(REPO),
-            "date": str(date.today()),
+            "date": str(TODAY),
+            "mode": args.source,
+            "expected_start": args.expected_start,
+            "elapsed_seconds": round(elapsed, 1),
             "errors": errs,
             "warnings": warns,
+            "passed": oks,
             "issues": all_issues,
         }
         with open(args.report, "w") as f:
             json.dump(report, f, ensure_ascii=False, indent=2)
         print(f"报告已保存: {args.report}")
+
+    # ── 缺失明细报告 ──
+    if args.missing_report:
+        missing_data["generated_at"] = datetime.now().isoformat()
+        missing_data["summary"] = {
+            "total_stocks": 0,
+            "ok_daily": 0,
+            "stale_daily": len(missing_data["daily_gaps"]),
+            "no_data_stocks": len(missing_data["no_data_stocks"]),
+            "table_gaps": len(missing_data["table_gaps"]),
+            "financial_issues": {
+                tbl: len(gaps) for tbl, gaps in missing_data["financial_gaps"].items()
+            },
+            "total_errors": errs,
+            "total_warnings": warns,
+        }
+        with open(args.missing_report, "w") as f:
+            json.dump(missing_data, f, ensure_ascii=False, indent=2)
+        print(f"缺失明细已保存: {args.missing_report}")
+        print(f"  日线缺失: {len(missing_data['daily_gaps'])} 只")
+        print(f"  无日线数据: {len(missing_data['no_data_stocks'])} 只")
+        print(f"  表级落后: {len(missing_data['table_gaps'])} 个表")
+        if missing_data['financial_gaps']:
+            for tbl, gaps in missing_data['financial_gaps'].items():
+                severe = [g for g in gaps if g.get('severity') == 'missing']
+                print(f"  {tbl} 缺失: {len(gaps)} 只 (含 {len(severe)} 只缺整年)")
 
     sys.exit(1 if errs > 0 else 0)
