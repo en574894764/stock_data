@@ -15,3 +15,6 @@ market/
 __pycache__/
 *.pyc
 .DS_Store
+
+# Pipeline artifacts (local only)
+logs/
