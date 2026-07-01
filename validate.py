@@ -474,12 +474,15 @@ def check_financial_continuity(db: PostgresDB, expected_start: int):
             stock_years AS (
                 SELECT
                     s.ts_code, s.name, s.exchange,
+                    EXTRACT(YEAR FROM s.list_date)::int as list_year,
+                    EXTRACT(MONTH FROM s.list_date)::int as list_month,
                     GENERATE_SERIES(
                         GREATEST({expected_start}, EXTRACT(YEAR FROM s.list_date)::int),
                         LEAST({TODAY.year}, COALESCE(EXTRACT(YEAR FROM s.delist_date)::int, {TODAY.year}))
                     ) as report_year
                 FROM stocks s
                 WHERE s.list_date IS NOT NULL
+                  AND s.delist_date IS NULL
                   AND (s.exchange IN ('SSE', 'SZSE', 'BSE')
                        OR s.ts_code LIKE '%.SH' OR s.ts_code LIKE '%.SZ' OR s.ts_code LIKE '%.BJ')
             ),
@@ -501,7 +504,7 @@ def check_financial_continuity(db: PostgresDB, expected_start: int):
                 issue("OK", "financial", name, "无数据或全部完整")
                 continue
 
-            # Python 侧聚合
+            # Python 侧聚合（含 IPO 年调整）
             stock_data = defaultdict(lambda: {"name": "", "years": {}, "missing_years": 0, "partial_years": 0})
             for r in rows:
                 ts = r["ts_code"]
@@ -509,7 +512,22 @@ def check_financial_continuity(db: PostgresDB, expected_start: int):
                 sd["name"] = r["name"]
                 yr = r["report_year"]
                 actual = r["actual_reports"]
-                expected = 4 if yr < TODAY.year else current_year_expected
+                ly = r.get("list_year", yr)  # 上市年份
+                lm = r.get("list_month", 1)  # 上市月份
+
+                if yr < TODAY.year:
+                    # 非当年：IPO年份按上市月份调整预期
+                    if yr == ly:
+                        if lm <= 3: expected = 4      # Q1 上市，全年有 4 份
+                        elif lm <= 6: expected = 3    # Q2 上市，最多 3 份
+                        elif lm <= 9: expected = 2    # Q3 上市，最多 2 份
+                        else: expected = 1             # Q4 上市，最多 1 份
+                    else:
+                        expected = 4
+                else:
+                    # 当年按A股截止日
+                    expected = current_year_expected
+
                 sd["years"][yr] = (actual, expected)
 
             # 统计
