@@ -500,12 +500,7 @@ def _get_feishu_token(app_id: str, app_secret: str) -> str | None:
 
 
 def push_feishu_report(report_text: str, chat_id: str | None = None) -> bool:
-    """推送报告到飞书消息
-
-    Args:
-        report_text: 报告文本（支持飞书消息卡片格式）
-        chat_id: 目标群聊 ID，不传则使用环境变量 FEISHU_CHAT_ID
-    """
+    """推送报告到飞书。自动发现机器人所在群聊，无需手动配置。"""
     creds = _get_feishu_credentials()
     if not creds:
         log("未找到飞书凭证，跳过推送", "WARN")
@@ -516,39 +511,51 @@ def push_feishu_report(report_text: str, chat_id: str | None = None) -> bool:
     if not token:
         return False
 
+    # 1. 优先使用指定的 chat_id
     if not chat_id:
         chat_id = os.environ.get("FEISHU_CHAT_ID", "")
 
+    # 2. 自动发现机器人所在的群聊
     if not chat_id:
-        log("未配置 FEISHU_CHAT_ID，尝试发送到 webhook 方式...", "WARN")
+        chat_id = _discover_chat(token)
+        if chat_id:
+            log(f"自动发现群聊: {chat_id}")
 
-        # 尝试用 webhook 兜底
+    # 3. 兜底 webhook
+    if not chat_id:
         webhook = os.environ.get("FEISHU_WEBHOOK", "")
         if webhook:
-            try:
-                r = requests.post(webhook, json={
-                    "msg_type": "interactive",
-                    "card": {
-                        "header": {"title": {"tag": "plain_text", "content": "📊 stock_data 数据报告"}, "template": "blue"},
-                        "elements": [{"tag": "markdown", "content": report_text}],
-                    },
-                }, timeout=10)
-                ok = r.json().get("code") == 0
-                log(f"飞书推送: {'✅' if ok else '❌'} (webhook) {r.json().get('msg', '')}")
-                return ok
-            except Exception as e:
-                log(f"飞书 webhook 推送失败: {e}", "ERROR")
-                return False
+            return _send_via_webhook(webhook, report_text)
+        log("未找到群聊，请将机器人添加到飞书群。", "WARN")
         return False
 
-    # 用 API 发送消息卡片
+    return _send_via_api(token, chat_id, report_text)
+
+
+def _discover_chat(token: str) -> str | None:
+    """自动发现机器人所在的群聊，返回第一个可用群聊 ID"""
+    try:
+        r = requests.get(
+            "https://open.feishu.cn/open-apis/im/v1/chats?page_size=10",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
+        data = r.json()
+        if data.get("code") == 0:
+            for chat in data.get("data", {}).get("items", []):
+                if chat.get("chat_status") == "normal":
+                    return chat.get("chat_id")
+    except Exception:
+        pass
+    return None
+
+
+def _send_via_api(token: str, chat_id: str, report_text: str) -> bool:
+    """通过飞书 API 发送消息卡片"""
     try:
         r = requests.post(
-            f"https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id",
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json",
-            },
+            "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
             json={
                 "receive_id": chat_id,
                 "msg_type": "interactive",
@@ -572,6 +579,24 @@ def push_feishu_report(report_text: str, chat_id: str | None = None) -> bool:
         return ok
     except Exception as e:
         log(f"飞书推送失败: {e}", "ERROR")
+        return False
+
+
+def _send_via_webhook(webhook: str, report_text: str) -> bool:
+    """通过 webhook 发送消息"""
+    try:
+        r = requests.post(webhook, json={
+            "msg_type": "interactive",
+            "card": {
+                "header": {"title": {"tag": "plain_text", "content": "📊 stock_data 数据报告"}, "template": "blue"},
+                "elements": [{"tag": "markdown", "content": report_text}],
+            },
+        }, timeout=10)
+        ok = r.json().get("code") == 0
+        log(f"飞书推送: {'✅' if ok else '❌'} (webhook)")
+        return ok
+    except Exception as e:
+        log(f"飞书 webhook 推送失败: {e}", "ERROR")
         return False
 
 
@@ -649,7 +674,7 @@ def main():
         report = step_validate_full(missing_path, args.cron)
         if report:
             db_stats = collect_db_stats()
-            rp = generate_report(db_stats, False, args.cron)
+            rp = generate_report(db_stats, False, None, args.cron)
             log(f"非交易日报告: {rp}")
         return 0
 
