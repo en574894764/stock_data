@@ -229,35 +229,44 @@ def tool_compare_runs(run_ids: str) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# MCP Server
+# MCP Server (FastMCP)
 # ═══════════════════════════════════════════════════════════════════
 
+from mcp.server import FastMCP
+
+mcp = FastMCP("argus-backtest")
+
+
+@mcp.tool()
+def list_strategies() -> str:
+    """列出所有可用的回测策略及其参数说明"""
+    return tool_list_strategies()
+
+
+@mcp.tool()
+def search_universe(keyword: str = "", limit: int = 50) -> str:
+    """按关键词搜索股票标的，或返回全部A股列表"""
+    return tool_search_universe(keyword, limit)
+
+
+@mcp.tool()
+def run_backtest(strategy: str, symbols: str, start: str, end: str,
+                 params: str = "{}", init_cash: float = 1_000_000) -> str:
+    """运行一次量化回测。输入策略名、逗号分隔标的、起止日期、参数JSON"""
+    return tool_run_backtest(strategy, symbols, start, end, params, init_cash)
+
+
+@mcp.tool()
+def generate_report(run_id: str, benchmark: str = "000300.SH") -> str:
+    """根据 run_id 生成自包含 HTML 回测报告(plotly图表+交易明细)"""
+    return tool_generate_report(run_id, benchmark)
+
+
+@mcp.tool()
+def compare_runs(run_ids: str) -> str:
+    """对比多次回测结果，按夏普降序排列"""
+    return tool_compare_runs(run_ids)
+
+
 if __name__ == "__main__":
-    from mcp.server import Server
-    from mcp.server.stdio import stdio_server
-
-    mcp = Server("argus-backtest")
-
-    mcp._tool_manager._tools["list_strategies"] = (
-        "列出所有可用的回测策略及其参数说明",
-        tool_list_strategies,
-    )
-    mcp._tool_manager._tools["search_universe"] = (
-        "按关键词搜索股票标的，或返回全部A股列表",
-        tool_search_universe,
-    )
-    mcp._tool_manager._tools["run_backtest"] = (
-        "运行一次量化回测。输入策略名、逗号分隔标的、起止日期、参数JSON",
-        tool_run_backtest,
-    )
-    mcp._tool_manager._tools["generate_report"] = (
-        "根据 run_id 生成自包含 HTML 回测报告(plotly图表+交易明细)",
-        tool_generate_report,
-    )
-    mcp._tool_manager._tools["compare_runs"] = (
-        "对比多次回测结果，按夏普降序排列",
-        tool_compare_runs,
-    )
-
-    import asyncio
-    asyncio.run(stdio_server()(mcp))
+    mcp.run()
