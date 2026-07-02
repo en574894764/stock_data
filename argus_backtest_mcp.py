@@ -186,23 +186,19 @@ def tool_run_backtest(strategy: str, symbols: str, start: str, end: str,
 
 
 def tool_generate_report(run_id: str, benchmark: str = "000300.SH") -> str:
+    """生成 ECharts 暗色 HTML 回测报告（K线+买卖标记+MA均线）"""
     stored = _run_store.get(run_id)
     if not stored:
         return json.dumps({"error": f"run_id {run_id} 不存在"})
 
     result = stored["_result"]
     s, e = date.fromisoformat(stored["start"]), date.fromisoformat(stored["end"])
-    bench = _ua().get_benchmark(benchmark, s, e)
     adapter = _adapter()
 
-    def bars_provider(sym):
-        return adapter.get_bar([sym], start=s, end=e)
-
-    try:
-        from argus.strategy.report import render_html
-        html = render_html(result, benchmark=bench, bars_provider=bars_provider)
-    except Exception as ex:
-        return json.dumps({"error": f"报告渲染失败: {ex}"})
+    from echarts_report import render_echarts_html
+    # 获取基准数据
+    bench_data = _ua().get_benchmark(benchmark, s, e)
+    html = render_echarts_html(result, adapter, stored["symbols"], s, e, benchmark=bench_data)
 
     path = OUTPUTS / f"backtest_{run_id}.html"
     path.write_text(html, encoding="utf-8")
