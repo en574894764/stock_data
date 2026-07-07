@@ -381,8 +381,130 @@ def _fill_daily_gaps(stocks: list[dict]) -> int:
     return total_new
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+# 数据源: 腾讯股票接口 (web.sqt.gtimg.cn)
+# ═════════════════════════════════════════════════════════════════════════════
+
+def fetch_from_tencent(dry_run: bool = False) -> int:
+    """通过腾讯接口拉取最新行情（免费，无需 token，通常比东财更稳定）。"""
+    import requests
+
+    log("通过腾讯接口拉取最新行情...")
+    if dry_run:
+        log("[dry-run] 跳过", "WARN")
+        return 0
+
+    # 收集所有需要更新的标的
+    if not DAILY_DIR.exists():
+        log("daily/ 目录不存在", "ERROR")
+        return 0
+
+    # 从 daily/ 目录读取已有 ts_code 列表（只拉 A 股的沪深标的）
+    ts_codes = []
+    for f in sorted(DAILY_DIR.glob("*.csv")):
+        code = f.stem  # 如 000001.SZ
+        if code.endswith((".SH", ".SZ")) and not code.endswith(".BJ"):
+            ts_codes.append(code)
+
+    if not ts_codes:
+        log("daily/ 目录中无 A 股 CSV", "WARN")
+        return 0
+
+    log(f"共 {len(ts_codes)} 只 A 股待拉取")
+
+    # 构建 Tencent 代码映射
+    code_map = {}
+    for ts_code in ts_codes:
+        symbol = ts_code.split(".")[0]
+        if ts_code.endswith(".SH"):
+            tx_code = f"sh{symbol}"
+        else:
+            tx_code = f"sz{symbol}"
+        code_map[tx_code] = ts_code
+
+    today = date.today().strftime("%Y-%m-%d")
+    url = "https://web.sqt.gtimg.cn/q="
+    headers = {"User-Agent": "Mozilla/5.0"}
+    batch_size = 500
+    tx_codes = list(code_map.keys())
+    total = len(tx_codes)
+    new_rows = 0  # 改为计数行数
+
+    for i in range(0, total, batch_size):
+        batch = tx_codes[i:i + batch_size]
+        batch_url = url + ",".join(batch)
+
+        try:
+            resp = requests.get(batch_url, headers=headers, timeout=60)
+            lines = resp.text.strip().split(";")
+
+            for line in lines:
+                if '="' not in line:
+                    continue
+                parts = line.split('="')
+                tx_code = parts[0].replace("v_", "")
+                data = parts[1].rstrip('"').split("~")
+
+                if len(data) < 40:
+                    continue
+
+                ts_code = code_map.get(tx_code)
+                if not ts_code:
+                    continue
+
+                try:
+                    price = float(data[3]) if data[3] else 0
+                    pre_close = float(data[4]) if data[4] else 0
+                    high = float(data[33]) if data[33] else price
+                    low = float(data[34]) if data[34] else price
+                    vol = float(data[6]) * 100 if data[6] else 0  # 手 → 股
+                    amount = float(data[7]) * 10000 if data[7] else 0  # 万 → 元
+                    if high == 0:
+                        high = price
+                    if low == 0:
+                        low = price
+                except (ValueError, IndexError):
+                    continue
+
+                csv_path = DAILY_DIR / f"{ts_code}.csv"
+                new_line = {
+                    "symbol": ts_code,
+                    "datetime": today,
+                    "open": pre_close,  # 腾讯接口无今开字段，用昨收代替
+                    "high": high,
+                    "low": low,
+                    "close": price,
+                    "volume": vol,
+                    "amount": amount,
+                }
+
+                existed = csv_path.exists()
+                with open(csv_path, "a", newline="") as f:
+                    writer = csv.DictWriter(f, fieldnames=list(new_line.keys()))
+                    if not existed:
+                        writer.writeheader()
+                    writer.writerow(new_line)
+                new_rows += 1
+
+        except Exception as e:
+            log(f"批次 [{i+1}-{min(i+batch_size, total)}] 失败: {e}", "WARN")
+            continue
+
+        time.sleep(0.05)
+
+    log(f"腾讯接口: 写入 {new_rows} 行 ({len(ts_codes)} 只标的)")
+    return new_rows
+
+
 def fetch_latest_day(dry_run: bool = False) -> int:
-    """仅拉取最新一个交易日的全量行情（AKShare）。"""
+    """仅拉取最新一个交易日的全量行情。
+
+    优先级：腾讯接口 → AKShare（作为回退）。
+    """
+    rows = fetch_from_tencent(dry_run)
+    if rows > 0:
+        return rows
+    log("腾讯接口返回 0 行，回退到 AKShare", "WARN")
     return fetch_from_akshare(dry_run)
 
 
@@ -495,8 +617,8 @@ def main():
     parser = argparse.ArgumentParser(description="stock_data 数据拉取 & GitHub 备份")
     parser.add_argument("--full", action="store_true", help="全量重建")
     parser.add_argument("--dry-run", action="store_true", help="预览，不实际写入/提交")
-    parser.add_argument("--source", choices=["pg", "tushare", "akshare", "all"], default="all",
-                        help="数据源 (默认: all，按 pg→tushare→akshare 优先级)")
+    parser.add_argument("--source", choices=["pg", "tushare", "akshare", "tencent", "all"], default="all",
+                        help="数据源 (默认: all，按 pg→tushare→akshare→tencent 优先级)")
     parser.add_argument("--no-push", action="store_true", help="拉取但不推送")
     parser.add_argument("--cron", action="store_true", help="定时任务模式（静默 + 仅增量）")
     parser.add_argument("--skip-validate", action="store_true", help="跳过数据校验")
@@ -544,6 +666,11 @@ def main():
             if new_rows == 0:
                 ak_rows = fetch_from_akshare(args.dry_run)
                 new_rows += ak_rows
+
+        if args.source in ("tencent", "all"):
+            if new_rows == 0:
+                tx_rows = fetch_from_tencent(args.dry_run)
+                new_rows += tx_rows
 
     log(f"  数据拉取完成, 总新增: {new_rows} 行" if isinstance(new_rows, int) else f"  数据拉取完成")
 
