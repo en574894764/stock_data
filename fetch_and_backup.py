@@ -309,54 +309,68 @@ def fetch_from_report(report_path: str, dry_run: bool = False) -> int:
 
 
 def _fill_daily_gaps(stocks: list[dict]) -> int:
-    """用 AKShare 历史行情补全指定股票的日线缺口。
+    """用 Tushare 补全指定股票的日线缺口。
 
-    对每只股票，拉取最近 60 天的日线数据，写入 CSV。
+    优先用 Tushare pro.daily() 按日期批量拉取（一次 API 调用覆盖全市场），
+    失败时回退到 AKShare 单只拉取。
     """
+    import pandas as pd
+
+    tushare_ok = False
+    try:
+        import tushare as ts
+        token = os.environ.get("TUSHARE_TOKEN", "72826744b6a3733e61cd602f4fd42fe56a6de0d5781ba77e0bfb929b")
+        if token:
+            ts.set_token(token)
+            tushare_ok = True
+    except ImportError:
+        pass
+
+    total_new = 0
+
+    if tushare_ok:
+        total_new = _fill_daily_gaps_tushare(stocks)
+        if total_new > 0:
+            log(f"Tushare 定向补全完成: {total_new} 行")
+            return total_new
+        log("Tushare 补全返回 0 行，回退到 AKShare", "WARN")
+
+    # AKShare 回退
     try:
         import akshare as ak
     except ImportError:
         log("akshare 未安装，无法定向补全", "ERROR")
         return 0
 
-    total_new = 0
     for i, s in enumerate(stocks):
         ts_code = s["ts_code"]
         name = s["name"]
-        # 去掉后缀获取纯代码
         code = ts_code.split(".")[0]
 
         try:
-            # 拉取历史日线（最近60天足够覆盖缺口）
             df = ak.stock_zh_a_hist(symbol=code, period="daily", adjust="qfq")
             if df is None or df.empty:
                 log(f"  [{i+1}/{len(stocks)}] {ts_code} {name}: AKShare 无数据", "WARN")
                 continue
 
             csv_path = DAILY_DIR / f"{ts_code}.csv"
-
-            # 读已有数据，找最新日期
             existing_dates = set()
             if csv_path.exists():
                 try:
-                    import pandas as pd
                     edf = pd.read_csv(csv_path, usecols=["datetime"])
                     existing_dates = set(str(d) for d in edf["datetime"])
                 except Exception:
                     pass
 
-            # 追加新行
             new_for_stock = 0
             with open(csv_path, "a", newline="") as f:
                 writer = csv.DictWriter(f, fieldnames=["symbol", "datetime", "open", "high", "low", "close", "volume", "amount"])
                 if not csv_path.exists() or csv_path.stat().st_size == 0:
                     writer.writeheader()
-
                 for _, row in df.iterrows():
                     date_str = str(row.get("日期", ""))
                     if not date_str or date_str in existing_dates:
                         continue
-
                     writer.writerow({
                         "symbol": ts_code,
                         "datetime": date_str,
@@ -377,7 +391,102 @@ def _fill_daily_gaps(stocks: list[dict]) -> int:
             log(f"  [{i+1}/{len(stocks)}] {ts_code} {name}: 失败 - {e}", "WARN")
             continue
 
-    log(f"定向补全完成: {total_new} 行")
+    log(f"AKShare 定向补全完成: {total_new} 行")
+    return total_new
+
+
+def _fill_daily_gaps_tushare(stocks: list[dict]) -> int:
+    """用 Tushare pro.daily() 按日期批量补全日线缺口。
+
+    逻辑：找到所有缺口日期，按日期调用 pro.daily(trade_date=X) 一次性拉取全市场，
+    然后按 stock 分流写入 CSV。
+    """
+    import pandas as pd
+    import tushare as ts
+    import time as _time
+
+    pro = ts.pro_api()
+
+    # 找出需要补全的日期范围
+    all_dates = set()
+    for s in stocks:
+        # last_date 是 YYYY-MM-DD 格式
+        ld = s.get("last_date", "")
+        if not ld:
+            continue
+        all_dates.add(ld.replace("-", ""))
+
+    if not all_dates:
+        return 0
+
+    # 获取从最早缺口日期到今天的交易日历
+    min_date = min(all_dates)
+    today = date.today().strftime("%Y%m%d")
+    try:
+        cal = pro.trade_cal(exchange="SSE", start_date=min_date, end_date=today)
+        trade_dates = sorted(cal[cal["is_open"] == 1]["cal_date"].tolist())
+    except Exception as e:
+        log(f"Tushare 交易日历获取失败: {e}", "ERROR")
+        return 0
+
+    # 去掉周末和非交易日
+    target_dates = [d for d in trade_dates if d >= min_date]
+
+    total_new = 0
+    for td in target_dates:
+        try:
+            df = pro.daily(trade_date=td)
+            if df is None or df.empty:
+                continue
+        except Exception as e:
+            log(f"Tushare {td} 拉取失败: {e}", "WARN")
+            continue
+
+        # 构建 ts_code → daily row 映射
+        daily_map = {}
+        for _, row in df.iterrows():
+            daily_map[row["ts_code"]] = row
+
+        # 写入需要补全的股票
+        td_display = f"{td[:4]}-{td[4:6]}-{td[6:8]}"
+        for s in stocks:
+            ts_code = s["ts_code"]
+            row = daily_map.get(ts_code)
+            if row is None:
+                continue
+
+            csv_path = DAILY_DIR / f"{ts_code}.csv"
+            # 检查是否已存在
+            existing_dates = set()
+            if csv_path.exists():
+                try:
+                    edf = pd.read_csv(csv_path, usecols=["datetime"])
+                    existing_dates = set(str(d) for d in edf["datetime"])
+                except Exception:
+                    pass
+
+            if td_display in existing_dates:
+                continue
+
+            existed = csv_path.exists()
+            with open(csv_path, "a", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=["symbol", "datetime", "open", "high", "low", "close", "volume", "amount"])
+                if not existed:
+                    writer.writeheader()
+                writer.writerow({
+                    "symbol": ts_code,
+                    "datetime": td_display,
+                    "open": row.get("open", ""),
+                    "high": row.get("high", ""),
+                    "low": row.get("low", ""),
+                    "close": row.get("close", ""),
+                    "volume": row.get("vol", ""),
+                    "amount": row.get("amount", ""),
+                })
+                total_new += 1
+
+        _time.sleep(0.6)  # Tushare 频率限制
+
     return total_new
 
 
@@ -502,8 +611,13 @@ def fetch_from_tencent(dry_run: bool = False) -> int:
 def fetch_latest_day(dry_run: bool = False) -> int:
     """仅拉取最新一个交易日的全量行情。
 
-    优先级：腾讯接口 → AKShare（作为回退）。
+    优先级：Tushare → 腾讯接口 → AKShare。
     """
+    # 优先使用 Tushare（数据最完整，含昨收/涨跌幅）
+    rows = fetch_from_tushare(dry_run)
+    if rows > 0:
+        return rows
+    log("Tushare 返回 0 行或无 token，回退到腾讯接口", "WARN")
     rows = fetch_from_tencent(dry_run)
     if rows > 0:
         return rows
