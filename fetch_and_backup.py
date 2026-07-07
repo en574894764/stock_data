@@ -436,6 +436,7 @@ def fetch_from_tencent(dry_run: bool = False) -> int:
 
         try:
             resp = requests.get(batch_url, headers=headers, timeout=60)
+            resp.encoding = "gbk"  # 腾讯接口返回 GBK 编码
             lines = resp.text.strip().split(";")
 
             for line in lines:
@@ -455,6 +456,7 @@ def fetch_from_tencent(dry_run: bool = False) -> int:
                 try:
                     price = float(data[3]) if data[3] else 0
                     pre_close = float(data[4]) if data[4] else 0
+                    open_price = float(data[5]) if data[5] else pre_close  # field[5] 是今开
                     high = float(data[33]) if data[33] else price
                     low = float(data[34]) if data[34] else price
                     vol = float(data[6]) * 100 if data[6] else 0  # 手 → 股
@@ -470,7 +472,7 @@ def fetch_from_tencent(dry_run: bool = False) -> int:
                 new_line = {
                     "symbol": ts_code,
                     "datetime": today,
-                    "open": pre_close,  # 腾讯接口无今开字段，用昨收代替
+                    "open": open_price,
                     "high": high,
                     "low": low,
                     "close": price,
