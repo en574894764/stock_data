@@ -435,7 +435,8 @@ def fetch_from_tencent(dry_run: bool = False) -> int:
         batch_url = url + ",".join(batch)
 
         try:
-            resp = requests.get(batch_url, headers=headers, timeout=60)
+            resp = requests.get(batch_url, headers=headers, timeout=60,
+                                proxies={"http": None, "https": None})
             resp.encoding = "gbk"  # 腾讯接口返回 GBK 编码
             lines = resp.text.strip().split(";")
 
@@ -443,7 +444,7 @@ def fetch_from_tencent(dry_run: bool = False) -> int:
                 if '="' not in line:
                     continue
                 parts = line.split('="')
-                tx_code = parts[0].replace("v_", "")
+                tx_code = parts[0].replace("v_", "").strip()  # strip 去掉换行符
                 data = parts[1].rstrip('"').split("~")
 
                 if len(data) < 40:
