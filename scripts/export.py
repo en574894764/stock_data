@@ -138,7 +138,11 @@ def main():
     export_daily(conn, "etf_quote", "etf", "trade_date",
                  ["code", "trade_date", "open", "high", "low", "close",
                   "pre_close", "vol", "amount"], full=args.full)
-    print("  hk: SKIP (hk_quote has 0 rows in PG)")
+    # HK stocks from daily_quote
+    export_daily(conn, "daily_quote", "hk", "trade_date",
+                 ["ts_code", "trade_date", "open", "high", "low", "close",
+                  "pre_close", "vol", "amount", "pct_chg"],
+                 where="WHERE ts_code LIKE '%.HK'", full=args.full)
 
     # ── Fundamental (always overwrite — reference data) ──
     print("\n=== FUNDAMENTAL ===")
