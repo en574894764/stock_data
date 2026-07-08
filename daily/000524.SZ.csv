@@ -5919,3 +5919,6 @@ symbol,datetime,open,high,low,close,volume,amount
 000524.SZ,2026-07-02,nan,nan,nan,nan,nan,nan
 000524.SZ,2026-07-06,nan,nan,nan,nan,nan,nan
 000524.SZ,2026-07-06,nan,nan,nan,nan,nan,nan
+000524.SZ,2026-07-07,0.0,8.95,8.95,8.95,0.0,0.0
+000524.SZ,2026-07-08,9.85,9.85,9.85,9.85,3024300.0,0.0
+000524.SZ,2026-07-08,9.85,9.85,9.85,9.85,3073900.0,0.0
