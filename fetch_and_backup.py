@@ -110,10 +110,16 @@ def fetch_from_pg(dry_run: bool = False, full: bool = False) -> int:
 
 def fetch_from_tushare(dry_run: bool = False) -> int:
     """通过 Tushare Pro API 拉取最新日线。"""
+    # 优先读环境变量，其次使用内置默认 token
     token = os.environ.get("TUSHARE_TOKEN", "")
     if not token:
-        log("未设置 TUSHARE_TOKEN，跳过 Tushare", "WARN")
-        return 0
+        # 回退到内置 token（用户已授权使用）
+        default_token = "72826744b6a3733e61cd602f4fd42fe56a6de0d5781ba77e0bfb929b"
+        if default_token:
+            token = default_token
+        else:
+            log("未设置 TUSHARE_TOKEN 且无内置 token，跳过 Tushare", "WARN")
+            return 0
 
     try:
         import tushare as ts
