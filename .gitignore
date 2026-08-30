@@ -18,3 +18,9 @@ __pycache__/
 
 # Pipeline artifacts (local only)
 logs/
+
+# Secrets
+.env
+
+# The reports
+reports/

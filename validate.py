@@ -14,10 +14,11 @@
   python validate.py                        # DB 全面检查（默认）
   python validate.py --source csv           # 仅检查 CSV 文件
   python validate.py --source both          # 同时检查 DB 和 CSV
-  python validate.py --quick                # 快速抽查（跳过大查询）
+  python validate.py --quick                # 快速模式（跳过财报连续性等大查询）
   python validate.py --symbol 600519.SH     # 单标的
   python validate.py --report report.json   # 输出 JSON 报告
   python validate.py --expected-start 2006  # 覆盖起点（默认2006）
+  python validate.py --stale-days 7         # 陈旧判定阈值（默认7天，港股放宽2交易日）
 """
 
 from __future__ import annotations
@@ -60,6 +61,7 @@ missing_data: dict = {
 }
 start_time = time.time()
 TODAY = date.today()
+_daily_stats = {"total": 0, "ok": 0}  # 逐标检查统计，供缺失报告 summary 使用
 
 
 def issue(level: str, category: str, item: str, detail: str = ""):
@@ -125,9 +127,12 @@ class PostgresDB:
 # 1. 全局时间范围
 # ═══════════════════════════════════════════════════════════════════════════
 
-def check_table_ranges(db: PostgresDB, expected_start: int):
-    """检查各核心表的时间覆盖范围"""
+def check_table_ranges(db: PostgresDB, expected_start: int, stale_days: int = 7):
+    """检查各核心表的时间覆盖范围（基准动态化：日线表对比 TODAY，年度表对比应有报告年度）"""
     print("\n── 各表时间范围 ──")
+
+    # report_year 为 varchar 的财报/估值类表，按年度口径判定
+    year_tables = {"income", "balance_sheet", "cashflow", "financial_indicator", "stock_valuation"}
 
     tables = {
         "daily_quote": ("日线行情", "trade_date"),
@@ -142,44 +147,63 @@ def check_table_ranges(db: PostgresDB, expected_start: int):
 
     for tbl, (name, date_col) in tables.items():
         try:
-            if date_col in ("trade_date", "list_date"):
-                min_d = db.query_scalar(f"SELECT MIN({date_col}) FROM {tbl}")
-                max_d = db.query_scalar(f"SELECT MAX({date_col}) FROM {tbl}")
-                cnt = db.query_scalar(f"SELECT COUNT(*) FROM {tbl}")
-            else:
-                min_d = db.query_scalar(f"SELECT MIN({date_col}) FROM {tbl}")
-                max_d = db.query_scalar(f"SELECT MAX({date_col}) FROM {tbl}")
-                cnt = db.query_scalar(f"SELECT COUNT(*) FROM {tbl}")
+            min_d = db.query_scalar(f"SELECT MIN({date_col}) FROM {tbl}")
+            max_d = db.query_scalar(f"SELECT MAX({date_col}) FROM {tbl}")
+            cnt = db.query_scalar(f"SELECT COUNT(*) FROM {tbl}")
 
             min_s, max_s = str(min_d or "N/A"), str(max_d or "N/A")
 
-            max_val = None
-            if max_d:
-                if isinstance(max_d, (date, datetime)):
-                    max_val = max_d if isinstance(max_d, date) else max_d.date()
-                elif isinstance(max_d, (int, float)):
-                    max_val = date(int(max_d), 12, 31)
-
-            expected_end = date(2026, 7, 1)
-            if max_val and (expected_end - max_val).days <= 5:
-                level = "OK"
-                detail = f"{min_s} ~ {max_s}  |  {cnt:,} 行"
-            elif max_val:
-                days_behind = (expected_end - max_val).days
-                level = "WARN"
-                detail = f"{min_s} ~ {max_s}  |  {cnt:,} 行  |  落后 {days_behind} 天"
-                missing_data["table_gaps"].append({
-                    "table": tbl,
-                    "name": name,
-                    "min_date": min_s,
-                    "max_date": max_s,
-                    "expected_end": str(expected_end),
-                    "days_behind": days_behind,
-                    "row_count": cnt,
-                })
+            if tbl in year_tables:
+                # 年度表：当年 Q1 披露截止 4/30，5 月起应有当年数据
+                expected_year = TODAY.year if TODAY.month >= 5 else TODAY.year - 1
+                try:
+                    max_year = int(str(max_d)) if max_d else None
+                except (TypeError, ValueError):
+                    max_year = None
+                if max_year and max_year >= expected_year:
+                    level = "OK"
+                    detail = f"{min_s} ~ {max_s}  |  {cnt:,} 行"
+                elif max_year:
+                    behind_years = expected_year - max_year
+                    level = "WARN"
+                    detail = f"{min_s} ~ {max_s}  |  {cnt:,} 行  |  落后 {behind_years} 个报告年度"
+                    missing_data["table_gaps"].append({
+                        "table": tbl,
+                        "name": name,
+                        "min_date": min_s,
+                        "max_date": max_s,
+                        "expected_end": str(expected_year),
+                        "days_behind": behind_years * 365,
+                        "row_count": cnt,
+                    })
+                else:
+                    level = "WARN"
+                    detail = f"{min_s} ~ {max_s}  |  {cnt:,} 行"
             else:
-                level = "WARN"
-                detail = f"{min_s} ~ {max_s}  |  {cnt:,} 行"
+                # 日期表：对比 TODAY，容差 stale_days 天
+                max_val = None
+                if max_d and isinstance(max_d, (date, datetime)):
+                    max_val = max_d if isinstance(max_d, date) else max_d.date()
+
+                if max_val and (TODAY - max_val).days <= stale_days:
+                    level = "OK"
+                    detail = f"{min_s} ~ {max_s}  |  {cnt:,} 行"
+                elif max_val:
+                    days_behind = (TODAY - max_val).days
+                    level = "WARN"
+                    detail = f"{min_s} ~ {max_s}  |  {cnt:,} 行  |  落后 {days_behind} 天"
+                    missing_data["table_gaps"].append({
+                        "table": tbl,
+                        "name": name,
+                        "min_date": min_s,
+                        "max_date": max_s,
+                        "expected_end": str(TODAY),
+                        "days_behind": days_behind,
+                        "row_count": cnt,
+                    })
+                else:
+                    level = "WARN"
+                    detail = f"{min_s} ~ {max_s}  |  {cnt:,} 行"
 
             issue(level, "range", f"{name} ({tbl})", detail)
 
@@ -191,12 +215,13 @@ def check_table_ranges(db: PostgresDB, expected_start: int):
 # 2. 日线逐标连续性（核心检查）
 # ═══════════════════════════════════════════════════════════════════════════
 
-def check_daily_per_stock(db: PostgresDB, expected_start: int, quick: bool = False, symbol: str = None):
+def check_daily_per_stock(db: PostgresDB, expected_start: int, quick: bool = False,
+                          symbol: str = None, stale_days: int = 7):
     """检查每只股票的日线数据连续性
 
-    规则：
-    - 上市中 + 数据到 2026-06-18 以后 → 正常
-    - 上市中 + 数据早于 2026-06-01 → 需排查（退市未标记 or 数据缺失）
+    规则（基准动态化）：
+    - 上市中 + last_date >= TODAY - stale_days → 正常（港股交易日历不同，额外放宽 2 个交易日）
+    - 上市中 + 数据早于 cutoff → 需排查（退市未标记 or 数据缺失）
     - 已退市 → 数据应到退市日
     """
     print("\n── 日线逐标连续性 ──")
@@ -232,12 +257,6 @@ def check_daily_per_stock(db: PostgresDB, expected_start: int, quick: bool = Fal
 
         rows = db.query(sql)
 
-        if quick and not symbol:
-            # 抽查 200 只
-            sample_size = min(200, len(rows))
-            rows = random.sample(rows, sample_size)
-            print(f"  (快速模式: 抽查 {sample_size}/{len(rows)} 只)")
-
         total = len(rows)
         no_data = []
         stale_active = []  # 上市中但数据陈旧
@@ -245,7 +264,17 @@ def check_daily_per_stock(db: PostgresDB, expected_start: int, quick: bool = Fal
         delisted_ok = 0
         delisted_stale = []
 
-        cutoff_stale = date(2026, 6, 1)  # 超过此日期未更新 → 视为陈旧
+        # 超过 cutoff 未更新 → 视为陈旧；港股交易日历与 A 股不同，放宽 2 个交易日
+        cutoff_stale = TODAY - timedelta(days=stale_days)
+        try:
+            cutoff_hk = db.query_scalar(
+                """SELECT cal_date FROM trade_cal
+                   WHERE is_open::int = 1 AND cal_date <= %s
+                   ORDER BY cal_date DESC OFFSET 2 LIMIT 1""",
+                (cutoff_stale,),
+            ) or (cutoff_stale - timedelta(days=3))
+        except Exception:
+            cutoff_hk = cutoff_stale - timedelta(days=3)
 
         for r in rows:
             ts = r["ts_code"]
@@ -269,8 +298,9 @@ def check_daily_per_stock(db: PostgresDB, expected_start: int, quick: bool = Fal
                 else:
                     delisted_ok += 1
             else:
-                # 上市中
-                if last_date >= cutoff_stale:
+                # 上市中（港股用放宽后的 cutoff）
+                cutoff = cutoff_hk if ts.endswith(".HK") else cutoff_stale
+                if last_date >= cutoff:
                     ok_active += 1
                 else:
                     stale_active.append((ts, name, last_d, list_d or "N/A", r["trading_days"]))
@@ -284,7 +314,8 @@ def check_daily_per_stock(db: PostgresDB, expected_start: int, quick: bool = Fal
         if stale_active:
             # 分档
             ancient = [(t, n, ld) for t, n, ld, _, _ in stale_active if ld < "2010-01-01"]
-            recent_stale = [(t, n, ld) for t, n, ld, _, _ in stale_active if ld >= "2010-01-01"]
+            recent_stale = [(t, n, ld) for t, n, ld, _, _ in stale_active
+                            if ld >= "2010-01-01" and not t.endswith(".HK")]
             hk_stale = [(t, n, ld) for t, n, ld, _, _ in stale_active if t.endswith(".HK")]
 
             # 填充 missing_data
@@ -337,6 +368,8 @@ def check_daily_per_stock(db: PostgresDB, expected_start: int, quick: bool = Fal
                 })
 
         print(f"\n  总计: {total} 上市中新鲜 {ok_active} | 陈旧 {len(stale_active)} | 无数据 {len(no_data)}")
+        _daily_stats["total"] = total
+        _daily_stats["ok"] = ok_active
 
     except Exception as e:
         issue("ERR", "daily", "逐标检查失败", str(e))
@@ -365,10 +398,10 @@ def check_daily_freshness(db: PostgresDB, quick: bool = False):
                 WHEN last_date >= CURRENT_DATE - INTERVAL '3 days' THEN '0-2天前'
                 WHEN last_date >= CURRENT_DATE - INTERVAL '7 days' THEN '3-7天前'
                 WHEN last_date >= CURRENT_DATE - INTERVAL '14 days' THEN '8-14天前'
-                WHEN last_date >= '2026-06-01' THEN '6月'
-                WHEN last_date >= '2026-01-01' THEN '今年较早'
-                WHEN last_date >= '2020-01-01' THEN '2020-2025'
-                ELSE '2020以前'
+                WHEN last_date >= CURRENT_DATE - INTERVAL '30 days' THEN '15-30天前'
+                WHEN last_date >= CURRENT_DATE - INTERVAL '90 days' THEN '31-90天前'
+                WHEN last_date >= date_trunc('year', CURRENT_DATE) THEN '今年较早'
+                ELSE '往年'
             END as freshness,
             COUNT(*) as cnt
         FROM last_dates
@@ -380,11 +413,152 @@ def check_daily_freshness(db: PostgresDB, quick: bool = False):
         total = sum(r["cnt"] for r in rows)
         for r in rows:
             pct = r["cnt"] / total * 100 if total else 0
-            level = "WARN" if r["freshness"] in ("今年较早", "2020-2025", "2020以前") else "OK"
+            level = "WARN" if r["freshness"] in ("15-30天前", "31-90天前", "今年较早", "往年") else "OK"
             issue(level, "freshness", r["freshness"], f"{r['cnt']:,} 只 ({pct:.1f}%)")
 
     except Exception as e:
         issue("ERR", "freshness", "查询失败", str(e))
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 3.5 各数据域新鲜度总览
+# ═══════════════════════════════════════════════════════════════════════════
+
+A_SHARE_INDEX_SYMBOLS = ("000001.SH", "000016.SH", "000300.SH", "000688.SH", "000852.SH",
+                         "000905.SH", "399001.SZ", "399005.SZ", "399006.SZ")
+
+
+def _macro_latest_date(path: Path):
+    """解析宏观 CSV 的最新数据日期；无法解析返回 None（兼容正序/倒序、YYYYMM/YYYYMMDD/ISO 等格式）"""
+    try:
+        df = pd.read_csv(path, dtype=str)
+    except Exception:
+        return None
+    if df.empty:
+        return None
+    # 候选列：命名日期列优先，其余按内容扫描
+    named = [c for c in df.columns if str(c).strip().lower() in ("date", "日期", "month", "月份", "day")]
+    others = [c for c in df.columns if c not in named]
+    for c in named + others:
+        col = df[c].dropna().astype(str).str.strip()
+        if col.empty:
+            continue
+        # 显式格式优先（避免 dateutil 对 YYYYMM 的歧义解析）
+        for fmt in ("%Y-%m-%d", "%Y%m%d", "%Y%m"):
+            parsed = pd.to_datetime(col, format=fmt, errors="coerce").dropna()
+            if len(parsed) >= max(1, len(col) // 2) and parsed.dt.year.between(1990, 2030).all():
+                return parsed.max().date()
+        # 兜底：无固定格式（如 '2026-06-01 08:46:58'）
+        parsed = pd.to_datetime(col, errors="coerce").dropna()
+        parsed = parsed[parsed.dt.year.between(1990, 2030)]
+        if len(parsed) >= max(1, len(col) // 2):
+            return parsed.max().date()
+    return None
+
+
+def check_freshness_overview(db: PostgresDB):
+    """各数据域新鲜度总览：MAX(date) vs 最近 A 股交易日，直接给出落后 N 交易日"""
+    print("\n── 数据域新鲜度总览 ──")
+
+    try:
+        last_td = db.query_scalar(
+            "SELECT MAX(cal_date) FROM trade_cal WHERE is_open::int = 1 AND cal_date <= CURRENT_DATE")
+        if not last_td:
+            issue("ERR", "overview", "基准交易日", "trade_cal 无数据，无法计算基准")
+            return
+        print(f"  基准（最近 A 股交易日）: {last_td}")
+
+        def lag_trading_days(d):
+            if d is None:
+                return None
+            return db.query_scalar(
+                "SELECT COUNT(*) FROM trade_cal WHERE is_open::int = 1 AND cal_date > %s AND cal_date <= %s",
+                (d, last_td))
+
+        def report_date_domain(name, max_d, n, extra_tol=0):
+            """日线类数据域：落后 N 交易日。extra_tol>0 表示允许的预期滞后（如海外指数）"""
+            if max_d is None:
+                issue("ERR", "overview", name, "无数据")
+                return
+            lag = lag_trading_days(max_d)
+            if lag is None:
+                issue("WARN", "overview", name, f"MAX={max_d}  |  {n} 标的")
+                return
+            if lag <= extra_tol:
+                tail = "（预期滞后）" if extra_tol else ""
+                issue("OK", "overview", name, f"MAX={max_d}  |  {n} 标的  |  落后 {lag} 交易日{tail}")
+            else:
+                issue("ERR" if lag > 5 else "WARN", "overview", name,
+                      f"MAX={max_d}  |  {n} 标的  |  落后基准 {last_td} 共 {lag} 个交易日")
+
+        a_idx_in = ",".join(f"'{s}'" for s in A_SHARE_INDEX_SYMBOLS)
+        date_domains = [
+            ("A股日线", f"SELECT MAX(trade_date) m, COUNT(DISTINCT ts_code) n FROM daily_quote WHERE ts_code NOT LIKE '%.HK'", 0),
+            ("港股日线", f"SELECT MAX(trade_date) m, COUNT(DISTINCT ts_code) n FROM daily_quote WHERE ts_code LIKE '%.HK'", 2),
+            ("ETF日线", "SELECT MAX(trade_date) m, COUNT(DISTINCT code) n FROM etf_quote", 0),
+            ("A股指数", f"SELECT MAX(trade_date) m, COUNT(DISTINCT symbol) n FROM index_daily WHERE symbol IN ({a_idx_in})", 0),
+            # 海外/港股指数数据要到北京时间次日才有，天然滞后 1 个交易日
+            ("海外/港股指数", f"SELECT MAX(trade_date) m, COUNT(DISTINCT symbol) n FROM index_daily WHERE symbol NOT IN ({a_idx_in})", 1),
+        ]
+        for name, sql, extra_tol in date_domains:
+            try:
+                r = db.query(sql)[0]
+                report_date_domain(name, r["m"], r["n"], extra_tol=extra_tol)
+            except Exception as e:
+                issue("ERR", "overview", name, str(e))
+
+        # 财报类：最新报告年度 vs 应有年度（当年 Q1 披露截止 4/30）
+        expected_year = TODAY.year if TODAY.month >= 5 else TODAY.year - 1
+        for tbl, name in [("income", "利润表"), ("balance_sheet", "资产负债表"),
+                          ("cashflow", "现金流量表"), ("financial_indicator", "财务指标")]:
+            try:
+                r = db.query(
+                    f"SELECT MAX(report_year) ry, MAX(ann_date) ad, COUNT(DISTINCT ts_code) n FROM {tbl}")[0]
+                ry, ad, n = r["ry"], r["ad"], r["n"]
+                if not ry:
+                    issue("ERR", "overview", f"财报·{name}", f"{tbl} 无数据")
+                    continue
+                try:
+                    ry_i = int(str(ry))
+                except (TypeError, ValueError):
+                    ry_i = 0
+                if ry_i >= expected_year:
+                    issue("OK", "overview", f"财报·{name}", f"最新报告年度 {ry}  |  ann_date 至 {ad}  |  {n} 标的")
+                else:
+                    issue("WARN", "overview", f"财报·{name}",
+                          f"最新报告年度 {ry}（应有 {expected_year}）|  ann_date 至 {ad}  |  {n} 标的")
+                    missing_data["table_gaps"].append({
+                        "table": tbl, "name": f"财报·{name}",
+                        "min_date": "", "max_date": str(ry),
+                        "expected_end": str(expected_year),
+                        "days_behind": (expected_year - ry_i) * 365 if ry_i else 9999,
+                        "row_count": 0,
+                    })
+            except Exception as e:
+                issue("ERR", "overview", f"财报·{name}", str(e))
+
+        # 宏观 CSV（直写文件，不走 PG）
+        monthly_domains = {"cpi", "pmi", "money_supply"}  # 月度数据，容忍度放宽
+        for f in sorted(MACRO_DIR.glob("*.csv")):
+            try:
+                latest = _macro_latest_date(f)
+                if latest is None:
+                    mtime = datetime.fromtimestamp(f.stat().st_mtime)
+                    issue("WARN", "overview", f"宏观·{f.stem}",
+                          f"无法解析数据日期，文件更新于 {mtime:%Y-%m-%d}")
+                    continue
+                days = (TODAY - latest).days
+                tol = 45 if f.stem in monthly_domains else 10
+                if days <= tol:
+                    issue("OK", "overview", f"宏观·{f.stem}", f"最新数据 {latest}")
+                else:
+                    issue("WARN", "overview", f"宏观·{f.stem}",
+                          f"最新数据 {latest}，距今 {days} 天")
+            except Exception as e:
+                issue("ERR", "overview", f"宏观·{f.stem}", str(e))
+
+    except Exception as e:
+        issue("ERR", "overview", "总览查询失败", str(e))
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -667,6 +841,8 @@ if __name__ == "__main__":
                         help="校验数据源: db(默认), csv, both")
     parser.add_argument("--expected-start", type=int, default=2006,
                         help="预期数据起始年份 (默认2006)")
+    parser.add_argument("--stale-days", type=int, default=7,
+                        help="陈旧判定阈值：超过 N 天未更新视为陈旧 (默认7，港股额外放宽2个交易日)")
     parser.add_argument("--skip-ohlc", action="store_true", help="跳过 OHLC 检查")
     parser.add_argument("--skip-financial", action="store_true", help="跳过财报连续性检查")
     parser.add_argument("--report", help="输出 JSON 报告文件")
@@ -690,8 +866,10 @@ if __name__ == "__main__":
             if args.source == "db":
                 sys.exit(1)
         else:
-            check_table_ranges(db, args.expected_start)
-            check_daily_per_stock(db, args.expected_start, quick=args.quick, symbol=args.symbol)
+            check_table_ranges(db, args.expected_start, stale_days=args.stale_days)
+            check_freshness_overview(db)
+            check_daily_per_stock(db, args.expected_start, quick=args.quick,
+                                  symbol=args.symbol, stale_days=args.stale_days)
             if not args.skip_ohlc:
                 check_ohlc_quality(db)
             check_daily_freshness(db, quick=args.quick)
@@ -736,8 +914,8 @@ if __name__ == "__main__":
     if args.missing_report:
         missing_data["generated_at"] = datetime.now().isoformat()
         missing_data["summary"] = {
-            "total_stocks": 0,
-            "ok_daily": 0,
+            "total_stocks": _daily_stats["total"],
+            "ok_daily": _daily_stats["ok"],
             "stale_daily": len(missing_data["daily_gaps"]),
             "no_data_stocks": len(missing_data["no_data_stocks"]),
             "table_gaps": len(missing_data["table_gaps"]),

@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""stock_data 数据管道编排器 — validate → fix → fetch → backup → report
+"""stock_data 数据管道编排器 — validate → fetch → backfill → macro → export → backup → report
+
+M5 改造（修复方案 2026-08-30）：
+  - fetch 走 fetch_and_backup.py v2（PG 单向流 + 区间自愈），不再有 --from-report 循环
+  - 新增宏观步骤 fetch_macro.py
+  - export 失败 → 飞书告警 + 非零退出
+  - 收敛判据：轮间 stale 无下降即 break + 告警（杜绝空转）
+  - 飞书报告含各数据域新鲜度 + 缺口 TOP10
 
 用法: python pipeline.py [--cron] [--dry-run] [--force] [--max-rounds N]
 """
@@ -9,13 +16,30 @@ import argparse, json, os, subprocess, sys, time
 from datetime import date, datetime
 from pathlib import Path
 
-from report_builder import collect_db_stats, generate_report, build_feishu_report, push_feishu_report
+from report_builder import (collect_db_stats, generate_report, build_feishu_report,
+                            push_feishu_report, push_feishu_alert)
 
 REPO = Path(__file__).parent
 LOGS = REPO / "logs"
 LOG_FILE = LOGS / "pipeline.log"
 PY = sys.executable
 SUCCESS, FAIL, WARN = "✅", "❌", "⚠️"
+
+
+def load_env(env_path: Path | None = None) -> None:
+    """读取 .env（TUSHARE_TOKEN 等密钥），注入环境变量供子进程继承。不覆盖已有值。"""
+    path = env_path or (REPO / ".env")
+    if not path.exists():
+        return
+    try:
+        for line in path.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, _, v = line.partition("=")
+            os.environ.setdefault(k.strip(), v.strip().strip('"\''))
+    except Exception as e:
+        log(f"读取 .env 失败: {e}", "WARN")
 
 
 def log(msg: str, level: str = "INFO", cron: bool = False):
@@ -29,6 +53,7 @@ def log(msg: str, level: str = "INFO", cron: bool = False):
 
 
 def run(cmd: list[str], timeout: int = 300, cron: bool = False) -> subprocess.CompletedProcess:
+    cmd = [c for c in cmd if c]  # 过滤空参数
     log(f"执行: {' '.join(cmd)}", "DEBUG", cron)
     try:
         return subprocess.run(cmd, capture_output=True, text=True, cwd=REPO, timeout=timeout)
@@ -53,41 +78,66 @@ def is_trading_day(d: date | None = None) -> bool:
 
 # ── Pipeline steps ──
 
-def step_validate(missing_path: str, quick: bool = False, cron: bool = False) -> dict | None:
-    args = [PY, str(REPO / "validate.py"), "--missing-report", missing_path]
-    if quick: args.append("--quick")
-    r = run(args, timeout=300, cron=cron)
+def step_validate(missing_path: str, cron: bool = False) -> dict | None:
+    """全量校验（核心 GROUP BY 查询 <10s，无需 --quick 抽查）。"""
+    r = run([PY, str(REPO / "validate.py"), "--missing-report", missing_path],
+            timeout=600, cron=cron)
     try:
         with open(missing_path) as f: return json.load(f)
-    except Exception: return None
+    except Exception:
+        log(f"validate 未产出缺失报告 (exit={r.returncode}): {r.stdout[-300:]}", "ERROR", cron)
+        return None
 
 
-def step_fetch_gaps(missing_path: str, cron: bool = False) -> bool:
-    r = run([PY, str(REPO / "fetch_and_backup.py"), "--from-report", missing_path, "--no-push"],
-            timeout=600, cron=cron)
-    return r.returncode == 0
-
-
-def step_fetch_latest(cron: bool = False) -> bool:
-    r = run([PY, str(REPO / "fetch_and_backup.py"), "--latest", "--no-push"],
-            timeout=300, cron=cron)
-    return r.returncode == 0
+def step_fetch(cron: bool = False) -> bool:
+    """数据拉取（A股/港股/ETF/指数 → PG，区间自愈）。"""
+    log("数据拉取 (fetch_and_backup → PG)...")
+    r = run([PY, str(REPO / "fetch_and_backup.py"), "--skip-export", "--skip-git"]
+            + (["--cron"] if cron else []),
+            timeout=3600, cron=cron)
+    ok = r.returncode == 0
+    if not ok:
+        log(f"fetch 失败 (exit={r.returncode}): {r.stderr[-300:]}", "ERROR", cron)
+    return ok
 
 
 def step_backfill_financial(cron: bool = False) -> bool:
-    """财报回补：补全缺失的利润表/资产负债表/现金流量表"""
+    """财报回补（已过披露截止日的报告期自动发现缺口）。"""
     log("财报回补...")
-    r = run([PY, str(REPO / "backfill_financial.py"), "--max", "100"],
+    r = run([PY, str(REPO / "backfill_financial.py")],
             timeout=1800, cron=cron)
-    return r.returncode == 0
+    ok = r.returncode == 0
+    if not ok:
+        log(f"财报回补失败 (exit={r.returncode}): {r.stderr[-300:]}", "WARN", cron)
+    return ok
+
+
+def step_fetch_macro(cron: bool = False) -> bool:
+    """宏观指标 → macro/*.csv 直写。"""
+    log("宏观拉取...")
+    r = run([PY, str(REPO / "fetch_macro.py")], timeout=600, cron=cron)
+    ok = r.returncode == 0
+    if not ok:
+        log(f"宏观拉取失败 (exit={r.returncode}): {r.stderr[-300:]}", "WARN", cron)
+    return ok
+
+
+def step_export(cron: bool = False) -> bool:
+    """PG → CSV 导出。失败 → 告警 + 非零。"""
+    log("导出 CSV (daily/ + index/ + data/)...")
+    r = run([PY, str(REPO / "scripts" / "export.py")], timeout=3600, cron=cron)
+    ok = r.returncode == 0
+    if not ok:
+        log(f"export 失败 (exit={r.returncode}): {r.stderr[-500:]}", "ERROR", cron)
+    return ok
 
 
 def step_backup(cron: bool = False) -> bool:
     import subprocess as sp
     log("GitHub 备份...")
-    # sync CSV → DB
-    sp.run(["git", "add", "daily/", "fundamental/", "meta/", "macro/", "index/", "scripts/", "*.py"],
-           capture_output=True, text=True, cwd=REPO, timeout=30)
+    sp.run(["git", "add", "data/", "daily/", "fundamental/", "meta/", "macro/", "index/",
+            "scripts/", "*.py", ".gitignore"],
+           capture_output=True, text=True, cwd=REPO, timeout=60)
 
     sr = sp.run(["git", "status", "--porcelain"], capture_output=True, text=True, cwd=REPO, timeout=10)
     changed = [l for l in sr.stdout.strip().split("\n") if l]
@@ -95,8 +145,8 @@ def step_backup(cron: bool = False) -> bool:
 
     today_str = date.today().strftime("%Y-%m-%d")
     sp.run(["git", "commit", "-m", f"data: {today_str} pipeline auto-update\n\n{len(changed)} files changed"],
-           capture_output=True, text=True, cwd=REPO, timeout=30)
-    sp.run(["git", "pull", "--rebase", "origin", "main"], capture_output=True, text=True, cwd=REPO, timeout=30)
+           capture_output=True, text=True, cwd=REPO, timeout=60)
+    sp.run(["git", "pull", "--rebase", "origin", "main"], capture_output=True, text=True, cwd=REPO, timeout=60)
 
     for i in range(3):
         pr = sp.run(["git", "push", "origin", "main"], capture_output=True, text=True, cwd=REPO, timeout=120)
@@ -112,9 +162,12 @@ def main():
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--cron", action="store_true")
     p.add_argument("--force", action="store_true")
-    p.add_argument("--max-rounds", type=int, default=3)
+    p.add_argument("--max-rounds", type=int, default=2)
     p.add_argument("--skip-backup", action="store_true")
+    p.add_argument("--skip-fetch", action="store_true")
     args = p.parse_args()
+
+    load_env()
 
     today = date.today()
     missing_path = str(LOGS / f"missing_{today.strftime('%Y%m%d')}.json")
@@ -122,21 +175,31 @@ def main():
     log(f"Pipeline 启动 | {today} | {'交易日' if is_trading_day(today) else '非交易日'} | "
         f"模式: {'DRY-RUN' if args.dry_run else 'CRON' if args.cron else 'NORMAL'}")
 
+    # ── 非交易日：仅校验 + 宏观 + 报告 ──
     if not is_trading_day(today) and not args.force:
-        log("非交易日，仅校验", cron=args.cron)
-        step_validate(missing_path, cron=args.cron)
+        log("非交易日，仅校验 + 宏观 + 报告", cron=args.cron)
+        report = step_validate(missing_path, cron=args.cron)
+        step_fetch_macro(args.cron)
         stats = collect_db_stats()
         rp = generate_report(stats, False)
-        push_feishu_report(build_feishu_report(stats, False))
+        ok = push_feishu_report(build_feishu_report(stats, False, report))
+        log(f"飞书推送: {'✅ 成功' if ok else '❌ 失败'}", cron=args.cron)
+        log(f"非交易日校验完成 | 报告: {rp}", cron=args.cron)
         return 0
 
     if args.dry_run:
         log("=== DRY RUN ===", cron=args.cron)
+        report = step_validate(missing_path, cron=args.cron)
+        if report:
+            s = report.get("summary", {})
+            log(f"dry-run: stale_daily={s.get('stale_daily')} no_data={s.get('no_data_stocks')} "
+                f"table_gaps={s.get('table_gaps')}")
         return 0
 
     # ── 主流程 ──
     start = time.time()
     before_stats = collect_db_stats()
+    failures = []
 
     report = step_validate(missing_path, cron=args.cron)
     if not report: return 1
@@ -145,16 +208,36 @@ def main():
 
     for rnd in range(1, args.max_rounds + 1):
         log(f"--- 第 {rnd}/{args.max_rounds} 轮 ---")
-        if stale > 0:
-            step_fetch_gaps(missing_path, args.cron)
-        step_fetch_latest(args.cron)
-        # 财报回补（每轮跑一次，自动发现缺口并补全）
-        step_backfill_financial(args.cron)
+        if not args.skip_fetch:
+            if not step_fetch(args.cron):
+                failures.append("fetch")
+        if not step_backfill_financial(args.cron):
+            failures.append("backfill_financial")
+        if not step_fetch_macro(args.cron):
+            failures.append("fetch_macro")
+
         report = step_validate(missing_path, cron=args.cron)
-        stale = report.get("summary", {}).get("stale_daily", 0) if report else 999
-        log(f"第 {rnd} 轮: {stale} 只缺失")
-        if stale == 0:
-            log(f"✅ 通过！"); break
+        new_stale = report.get("summary", {}).get("stale_daily", 999) if report else 999
+        log(f"第 {rnd} 轮: {new_stale} 只缺失 (上轮 {stale})")
+
+        # 收敛判据：无下降即停（真实停牌/退市股 stale 不会归零）
+        if new_stale == 0:
+            log("✅ 全部新鲜")
+            break
+        if new_stale >= stale:
+            log(f"⚠️ 轮间无改善 ({stale} → {new_stale})，停止迭代。剩余缺口多为真实停牌/退市/无源标的。", "WARN")
+            push_feishu_alert(
+                f"**{WARN} pipeline 收敛告警**\n"
+                f"stale {stale} → {new_stale} 无改善，已停止迭代。\n"
+                f"剩余缺口明细见 {missing_path}")
+            break
+        stale = new_stale
+
+    # ── 导出 ──
+    if not step_export(args.cron):
+        failures.append("export")
+        push_feishu_alert(f"**{FAIL} pipeline export 失败**\n数据已写入 PG，CSV 导出失败，"
+                          f"请手动重跑 scripts/export.py")
 
     github_ok = step_backup(args.cron) if not args.skip_backup else False
     stats = collect_db_stats()
@@ -167,12 +250,15 @@ def main():
         if b > 0: inc[tbl] = a - b
 
     report_path = generate_report(stats, github_ok)
-    push_feishu_report(build_feishu_report(stats, github_ok))
+    push_feishu_report(build_feishu_report(stats, github_ok, report))
 
     elapsed = time.time() - start
-    log(f"\n{'='*60}\n{SUCCESS} 完成 | {elapsed:.0f}s | 日线 {stats.get('daily_ok', 0)}/{stats.get('daily_total', 0)} "
-        f"| GitHub {SUCCESS if github_ok else FAIL}\n报告: {report_path}\n{'='*60}")
-    return 0
+    log(f"\n{'='*60}\n{SUCCESS if not failures else FAIL} 完成 | {elapsed:.0f}s | "
+        f"A股日线 {stats.get('daily_ok', 0)}/{stats.get('daily_total', 0)} | "
+        f"港股日线 {stats.get('hk_daily_ok', 0)}/{stats.get('hk_daily_total', 0)} | "
+        f"GitHub {SUCCESS if github_ok else FAIL} | 失败步骤: {failures or '无'}\n"
+        f"报告: {report_path}\n{'='*60}")
+    return 1 if failures else 0
 
 
 if __name__ == "__main__":
