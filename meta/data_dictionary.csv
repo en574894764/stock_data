@@ -1,0 +1,13 @@
+﻿table,column_group,adjustment,source,precision,notes
+daily_quote,A股(ts_code 非HK),不复权,tushare pro.daily,价格2位小数/量单位为手,pct_chg与价格自洽(2015+零容忍0.5pct);除权日pre_close为交易所除权口径
+daily_quote,港股(ts_code=%.HK),不复权,akshare stock_hk_daily,价格2位小数/量单位为股,低价股(<0.5港元)close/pre_close精度不足-收益率计算请直接用pct_chg列;vol=0日仍可能有报价更新(源特性);pre_close为shift(1)拼接-除权日外应约等于前日close
+etf_quote,全部,不复权,tushare pro.fund_daily,价格3位小数,pct_chg与价格自洽(阈值0.5pct)
+index_daily,A股指数,无复权概念,tushare pro.index_daily,点位2位小数,pct_chg与价格自洽
+index_daily,港股指数(HSI/HSTECH/HSCEI),无复权概念,akshare stock_hk_index_daily_sina,点位2位小数,HKTECH/HSHKCI无稳定免费源已冻结
+income / balance_sheet / cashflow,全部,不适用,tushare *_vip 批量接口,数值型,report_type=1为合并报表标准口径;北交所重复挂牌变体代码(含!)已过滤
+financial_indicator,全部,不适用,tushare fina_indicator_vip,数值型,含多版本报告期行-按ann_date最新为准
+macro/*.csv,六源(shibor/lpr/cpi/pmi/money_supply/bond_yield),不适用,akshare 各宏观接口,见各文件,列结构为旧英文列名(中文源列已映射);shibor/lpr日频其余月频
+known_frozen,港股指数HKTECH/HSHKCI,不适用,无源,--,2026-07-07后冻结
+known_frozen,海外指数DJI/SPX/IXIC/N225/FTSE/GDAXI/RUT,不适用,无源,--,index/保留旧CSV不动
+known_frozen,fundamental/按报告期子目录,不适用,一次性快照,--,权威数据在PG与data/fundamental/*.csv
+cache,1d/与market/ parquet,不适用,Argus缓存,--,可用restore.py从PG重建-不在每日更新范围

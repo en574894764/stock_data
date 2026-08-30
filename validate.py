@@ -115,12 +115,20 @@ class PostgresDB:
             cur.close()
 
     def query_scalar(self, sql: str, params: tuple = None):
-        """执行查询，返回单个标量值"""
+        """执行查询，返回单个标量值（SQL 含字面 % 时 params 必须为 None）"""
         cur = self.conn.cursor()
-        cur.execute(sql, params or ())
+        cur.execute(sql, params) if params else cur.execute(sql)
         val = cur.fetchone()
         cur.close()
         return val[0] if val else None
+
+    def query_one(self, sql: str, params: tuple = None):
+        """执行查询，返回一行元组（SQL 含字面 % 时 params 必须为 None）"""
+        cur = self.conn.cursor()
+        cur.execute(sql, params) if params else cur.execute(sql)
+        row = cur.fetchone()
+        cur.close()
+        return row
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -589,12 +597,38 @@ def check_ohlc_quality(db: PostgresDB):
         else:
             issue("OK", "ohlc", "high ≥ low 全部正确")
 
-        # 涨跌幅异常（>20% 单日）
-        extreme = db.query_scalar("""
-            SELECT COUNT(*) FROM daily_quote WHERE ABS(pct_chg) > 20
+        # 涨跌幅制度感知（2023+ 制度稳定期：主板10% 创业/科创20% 北交所30% 港股无限制）
+        # 豁免：每只股票自身首个交易日（新股上市首日无限制）
+        regime = db.query_one("""
+            WITH x AS (
+                SELECT ts_code, trade_date, pct_chg,
+                       MIN(trade_date) OVER (PARTITION BY ts_code) AS first_day
+                FROM daily_quote
+                WHERE trade_year >= 2023 AND pct_chg IS NOT NULL
+            )
+            SELECT
+                SUM(CASE WHEN ts_code LIKE '%.HK' AND ABS(pct_chg) > 60
+                         THEN 1 ELSE 0 END) AS hk_extreme,
+                SUM(CASE WHEN ts_code NOT LIKE '%.HK' AND trade_date > first_day THEN
+                    CASE
+                        WHEN (ts_code LIKE '30%' OR ts_code LIKE '68%') AND ABS(pct_chg) > 21 THEN 1
+                        WHEN (ts_code LIKE '8%' OR ts_code LIKE '4%' OR ts_code LIKE '92%') AND ABS(pct_chg) > 31.5 THEN 1
+                        WHEN ts_code NOT LIKE '30%' AND ts_code NOT LIKE '68%'
+                             AND ts_code NOT LIKE '8%' AND ts_code NOT LIKE '4%'
+                             AND ts_code NOT LIKE '92%' AND ABS(pct_chg) > 11 THEN 1
+                        ELSE 0
+                    END ELSE 0 END) AS a_over_limit
+            FROM x
         """)
-        if extreme:
-            issue("WARN", "ohlc", "涨跌幅 > ±20%", f"{extreme:,} 行（可能含除权或数据异常）")
+        if regime:
+            hk_extreme, a_over = (int(v) if v is not None else 0 for v in regime)
+            if a_over:
+                issue("WARN", "ohlc", "A股超涨跌停限制(制度感知,2023+)",
+                      f"{a_over:,} 行（ST戴摘帽日/期权行权等特殊情形除外需人工抽查）")
+            else:
+                issue("OK", "ohlc", "A股无超涨跌停限制行 (2023+)")
+            if hk_extreme:
+                issue("WARN", "ohlc", "港股极端波动 |pct_chg|>60%", f"{hk_extreme:,} 行")
 
         # NULL 值
         nulls = db.query_scalar("""
@@ -608,6 +642,130 @@ def check_ohlc_quality(db: PostgresDB):
 
     except Exception as e:
         issue("ERR", "ohlc", "查询失败", str(e))
+
+
+def check_price_consistency(db: PostgresDB):
+    """L1 价格一致性质检：pct_chg 自洽 / pre_close 连续性 / 量价矛盾"""
+    print("\n── 价格一致性质检 (L1) ──")
+
+    try:
+        # 1) pct_chg 自洽性: (close-pre_close)/pre_close 与存储 pct_chg 偏差
+        #    A股/ETF/指数 (tushare 源) 2015+ 零容忍 0.5pct（早年含复权口径差异降为统计）;
+        #    港股 (akshare 2位小数报价) 放宽 1.5pct
+        row = db.query_one("""
+            SELECT
+                SUM(CASE WHEN ts_code NOT LIKE '%.HK' AND trade_year >= 2015
+                          AND ABS((close-pre_close)/pre_close*100 - pct_chg) > 0.5
+                         THEN 1 ELSE 0 END),
+                SUM(CASE WHEN ts_code NOT LIKE '%.HK' AND trade_year < 2015
+                          AND ABS((close-pre_close)/pre_close*100 - pct_chg) > 0.5
+                         THEN 1 ELSE 0 END),
+                SUM(CASE WHEN ts_code LIKE '%.HK'
+                          AND ABS((close-pre_close)/pre_close*100 - pct_chg) > 1.5
+                         THEN 1 ELSE 0 END)
+            FROM daily_quote
+            WHERE pre_close > 0 AND pct_chg IS NOT NULL
+        """)
+        a_bad, a_bad_old, hk_bad = (int(v) if v is not None else 0 for v in row)
+        if a_bad:
+            issue("ERR", "consistency", "pct_chg 与价格不自洽 (A股/ETF 2015+)",
+                  f"{a_bad:,} 行 — 偏差>0.5pct，疑似源数据错误")
+        else:
+            issue("OK", "consistency", "pct_chg 与价格自洽 (A股/ETF 2015+)")
+        if a_bad_old:
+            issue("WARN", "consistency", "pct_chg 与价格不自洽 (A股 2015 前)",
+                  f"{a_bad_old:,} 行 — 历史复权口径差异，统计记录")
+        if hk_bad:
+            issue("WARN", "consistency", "pct_chg 与价格不自洽 (港股)",
+                  f"{hk_bad:,} 行 — 低价股 2 位小数报价精度所致，"
+                  f"收益率计算请直接用 pct_chg 列")
+        else:
+            issue("OK", "consistency", "pct_chg 与价格自洽 (港股)")
+
+        # 2) pre_close 连续性: 当日 pre_close vs 前日 close（LAG 窗口）
+        #    偏差>2% 计 mismatch。A股 mismatch 多为除权（交易所前收盘口径，合理）；
+        #    港股 mismatch 需关注（fetch 拼接 pre_close 可能引入假缺口）
+        row = db.query_one("""
+            WITH x AS (
+                SELECT ts_code, pre_close,
+                       LAG(close) OVER (PARTITION BY ts_code ORDER BY trade_date) AS prev_close
+                FROM daily_quote
+                WHERE trade_year = EXTRACT(YEAR FROM CURRENT_DATE)
+            )
+            SELECT
+                SUM(CASE WHEN ts_code NOT LIKE '%.HK' AND prev_close > 0
+                          AND ABS(pre_close - prev_close)/prev_close > 0.02
+                         THEN 1 ELSE 0 END),
+                SUM(CASE WHEN ts_code LIKE '%.HK' AND prev_close > 0
+                          AND ABS(pre_close - prev_close)/prev_close > 0.02
+                         THEN 1 ELSE 0 END),
+                COUNT(*) FILTER (WHERE prev_close IS NOT NULL)
+            FROM x WHERE pre_close IS NOT NULL
+        """)
+        a_mismatch, hk_mismatch, total_cmp = (int(v) if v is not None else 0 for v in row)
+        if a_mismatch:
+            issue("WARN", "consistency", "A股 pre_close 与前日收盘不衔接",
+                  f"{a_mismatch:,} 行（多为除权除息，交易所口径，合理）")
+        else:
+            issue("OK", "consistency", "A股 pre_close 连续")
+        if hk_mismatch:
+            issue("WARN", "consistency", "港股 pre_close 与前日收盘不衔接",
+                  f"{hk_mismatch:,} 行（除权 + akshare 拼接口径混合，除权日外需人工抽查）")
+
+        # 3) 量价矛盾 (仅 A股/ETF — tushare 源停牌日应 vol=0 且 close=pre_close;
+        #    港股 akshare 源 vol=0 日仍有报价更新属源特性，豁免)
+        #    vol=0 但有成交额; (非港股) vol>0 但 amount 缺失
+        row = db.query_one("""
+            SELECT
+                SUM(CASE WHEN COALESCE(vol,0) = 0 AND ts_code NOT LIKE '%.HK'
+                          AND pre_close > 0 AND close <> pre_close
+                         THEN 1 ELSE 0 END),
+                SUM(CASE WHEN COALESCE(vol,0) = 0 AND COALESCE(amount,0) > 0
+                         THEN 1 ELSE 0 END),
+                SUM(CASE WHEN COALESCE(vol,0) > 0 AND ts_code NOT LIKE '%.HK'
+                          AND (amount IS NULL OR amount = 0)
+                         THEN 1 ELSE 0 END)
+            FROM daily_quote
+        """)
+        vp_price, vp_amount, vp_missing = (int(v) if v is not None else 0 for v in row)
+        if vp_price:
+            issue("ERR", "consistency", "零成交量但价格变动", f"{vp_price:,} 行")
+        else:
+            issue("OK", "consistency", "无零成交量价格变动")
+        if vp_amount:
+            issue("WARN", "consistency", "零成交量但有成交额", f"{vp_amount:,} 行")
+        if vp_missing:
+            issue("WARN", "consistency", "有成交量但无成交额 (A股)", f"{vp_missing:,} 行")
+
+        # 3b) pre_close 缺失统计（历史数据源特性，标记不算错误）
+        row = db.query_one("""
+            SELECT
+                SUM(CASE WHEN ts_code LIKE '%.HK' AND COALESCE(pre_close,0) = 0
+                         THEN 1 ELSE 0 END),
+                SUM(CASE WHEN ts_code NOT LIKE '%.HK' AND COALESCE(pre_close,0) = 0
+                         THEN 1 ELSE 0 END)
+            FROM daily_quote
+        """)
+        hk_nopc, a_nopc = (int(v) if v is not None else 0 for v in row)
+        if hk_nopc or a_nopc:
+            issue("WARN", "consistency", "pre_close 缺失/为0",
+                  f"港股 {hk_nopc:,} 行 / A股 {a_nopc:,} 行（历史源数据特性，"
+                  f"影响 pre_close 依赖型计算，pct_chg 列不受影响）")
+
+        # 4) ETF / 指数表 pct_chg 自洽
+        for tbl in ("etf_quote", "index_daily"):
+            bad = db.query_scalar(f"""
+                SELECT COUNT(*) FROM {tbl}
+                WHERE pre_close > 0 AND pct_chg IS NOT NULL
+                  AND ABS((close-pre_close)/pre_close*100 - pct_chg) > 0.5
+            """)
+            if bad:
+                issue("ERR", "consistency", f"{tbl} pct_chg 不自洽", f"{int(bad):,} 行")
+            else:
+                issue("OK", "consistency", f"{tbl} pct_chg 自洽")
+
+    except Exception as e:
+        issue("ERR", "consistency", "查询失败", str(e))
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -872,6 +1030,7 @@ if __name__ == "__main__":
                                   symbol=args.symbol, stale_days=args.stale_days)
             if not args.skip_ohlc:
                 check_ohlc_quality(db)
+                check_price_consistency(db)
             check_daily_freshness(db, quick=args.quick)
 
             if not args.skip_financial and not args.quick:

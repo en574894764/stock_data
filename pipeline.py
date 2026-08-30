@@ -132,6 +132,19 @@ def step_export(cron: bool = False) -> bool:
     return ok
 
 
+def step_reconcile(cron: bool = False) -> bool:
+    """L2 周度对账质检（周六追加）：PG↔CSV 对账 / 生命周期 / 财报合理性 / 分布漂移。"""
+    log("L2 对账质检 (reconcile)...")
+    r = run([PY, str(REPO / "scripts" / "reconcile.py")], timeout=1200, cron=cron)
+    ok = r.returncode == 0
+    if not ok:
+        log(f"L2 对账发现 ERR 级问题:\n{r.stdout[-800:]}", "ERROR", cron)
+        push_feishu_alert(
+            f"**{FAIL} L2 对账质检发现问题**\n"
+            f"{r.stdout[-600:]}")
+    return ok
+
+
 def step_backup(cron: bool = False) -> bool:
     import subprocess as sp
     log("GitHub 备份...")
@@ -241,6 +254,11 @@ def main():
 
     github_ok = step_backup(args.cron) if not args.skip_backup else False
     stats = collect_db_stats()
+
+    # 周六追加 L2 对账质检
+    if today.weekday() == 5:
+        if not step_reconcile(args.cron):
+            failures.append("reconcile")
 
     # 增量
     inc = {}
