@@ -284,6 +284,11 @@ def fetch_hk(conn, target: date, dry_run: bool = False) -> int:
             if df is None or df.empty:
                 failed += 1
                 continue
+            # 防御性数值清洗：akshare 偶发返回脏值（如 '3.90' 混入 float64 列
+            # 抛 Invalid value 异常导致整只标的失败），coerce 后仅丢脏行
+            for col in ("open", "high", "low", "close", "volume", "amount"):
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors="coerce")
             # date 列可能是 datetime.date（object dtype），统一转 Timestamp
             df["date"] = pd.to_datetime(df["date"])
             # 兼容列名（volume/vol；amount 可能缺失）
@@ -301,12 +306,14 @@ def fetch_hk(conn, target: date, dry_run: bool = False) -> int:
                 continue
 
             # 窗口首行的 pre_close 若为 NaN，用 PG 已有最后收盘价补
+            # （Decimal 必须转 float——新版 pandas 禁止 Decimal 赋值 float64 列，
+            #   报 Invalid value for dtype，此前 23 只港股失败的根因）
             pg_last_close = None
             with conn.cursor() as cur:
                 cur.execute("SELECT close FROM daily_quote WHERE ts_code = %s ORDER BY trade_date DESC LIMIT 1",
                             (ts_code,))
                 row = cur.fetchone()
-                pg_last_close = row[0] if row else None
+                pg_last_close = float(row[0]) if row else None
             if pg_last_close is not None and pd.isna(new_df.iloc[0]["pre_close"]):
                 new_df = new_df.copy()
                 new_df.iloc[0, new_df.columns.get_loc("pre_close")] = pg_last_close
