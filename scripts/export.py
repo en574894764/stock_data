@@ -269,6 +269,45 @@ def _export_table(conn, pg_table: str, csv_path: Path):
     cur.close()
 
 
+def _export_table_by_year(conn, pg_table: str, name: str, out_dir: Path,
+                          year_col: str = "report_year"):
+    """按 report_year 拆分导出（data/fundamental/{name}_{year}.csv）。
+
+    动机：整表单 CSV（balance_sheet 98MB）逼近 GitHub 100MB 硬阻断线，且每天
+    全量重写让 git 历史膨胀（.git 已 3.8GB）。按年拆分后历史年份文件字节级
+    不变（git 对象复用，零成本），仅当年 + 披露期内年份更新。
+
+    跳过规则：report_year <= 当前年-2 且文件已存在 → 跳过
+    （N 年报最晚 N+1 年 4/30 披露完，N-2 及更早不再变化）。
+    """
+    from datetime import date as _date
+    cur = conn.cursor()
+    cur.execute(f"SELECT MIN({year_col}), MAX({year_col}) FROM {pg_table}")
+    y_min, y_max = cur.fetchone()
+    if not y_min:
+        print(f"  {name}: EMPTY — skipping")
+        return
+    out_dir.mkdir(parents=True, exist_ok=True)
+    cutoff_year = _date.today().year - 2
+    exported, skipped = 0, 0
+    for year in range(int(y_min), int(y_max) + 1):
+        csv_path = out_dir / f"{name}_{year}.csv"
+        if year <= cutoff_year and csv_path.exists():
+            skipped += 1
+            continue
+        cur.execute(f"""
+            SELECT * FROM {pg_table} WHERE {year_col} = {year} ORDER BY 1, 2
+        """)
+        rows = cur.fetchall()
+        if not rows:
+            continue
+        _write_csv(csv_path, rows, [d[0] for d in cur.description])
+        exported += 1
+        print(f"  {name}_{year}: {len(rows):,} rows")
+    print(f"  {name}: {exported} exported, {skipped} skipped (historical frozen)")
+    cur.close()
+
+
 # ═════════════════════════════════════════════════════════════════════════════
 # 主入口
 # ═════════════════════════════════════════════════════════════════════════════
@@ -312,12 +351,13 @@ def main():
                   "pre_close", "vol", "amount", "pct_chg"],
                  filter_cond="ts_code LIKE '%.HK'", full=args.full)
 
-    # ── Fundamental ──
-    print("\n=== FUNDAMENTAL ===")
-    _export_table(conn, "income", DATA / "fundamental" / "income_stmt.csv")
-    _export_table(conn, "balance_sheet", DATA / "fundamental" / "balance_sheet.csv")
-    _export_table(conn, "cashflow", DATA / "fundamental" / "cashflow.csv")
-    _export_table(conn, "financial_indicator", DATA / "fundamental" / "financial_indicator.csv")
+    # ── Fundamental（按年拆分：历史年份 git 对象复用，当年/近两年才更新）──
+    print("\n=== FUNDAMENTAL (by year) ===")
+    fund_dir = DATA / "fundamental"
+    _export_table_by_year(conn, "income", "income_stmt", fund_dir)
+    _export_table_by_year(conn, "balance_sheet", "balance_sheet", fund_dir)
+    _export_table_by_year(conn, "cashflow", "cashflow", fund_dir)
+    _export_table_by_year(conn, "financial_indicator", "financial_indicator", fund_dir)
 
     # ── Meta ──
     print("\n=== META ===")

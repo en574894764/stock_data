@@ -139,19 +139,23 @@ def check_table_ranges(db: PostgresDB, expected_start: int, stale_days: int = 7)
     """检查各核心表的时间覆盖范围（基准动态化：日线表对比 TODAY，年度表对比应有报告年度）"""
     print("\n── 各表时间范围 ──")
 
-    # report_year 为 varchar 的财报/估值类表，按年度口径判定
-    year_tables = {"income", "balance_sheet", "cashflow", "financial_indicator", "stock_valuation"}
+    # report_year 为 varchar 的财报类表，按年度口径判定
+    # stock_valuation 是人工估值记录表（非行情/财报，用户按需填写），不适用机器质检口径，已移除
+    year_tables = {"income", "balance_sheet", "cashflow", "financial_indicator"}
 
+    # stocks.list_date 仅在新股上市时前进（无新股的周期属正常），给 60 天容忍
+    # index_daily 有 HK_LAG 容忍，此处统一 stale_days；stocks 单独放宽
     tables = {
         "daily_quote": ("日线行情", "trade_date"),
         "income": ("利润表", "report_year"),
         "balance_sheet": ("资产负债表", "report_year"),
         "cashflow": ("现金流量表", "report_year"),
         "financial_indicator": ("财务指标", "report_year"),
-        "stock_valuation": ("估值数据", "valuation_year"),
         "index_daily": ("指数日线", "trade_date"),
         "stocks": ("股票列表", "list_date"),
     }
+    # 表级专用容忍天数（覆盖 stale_days）
+    table_tolerance = {"stocks": 60}
 
     for tbl, (name, date_col) in tables.items():
         try:
@@ -188,12 +192,13 @@ def check_table_ranges(db: PostgresDB, expected_start: int, stale_days: int = 7)
                     level = "WARN"
                     detail = f"{min_s} ~ {max_s}  |  {cnt:,} 行"
             else:
-                # 日期表：对比 TODAY，容差 stale_days 天
+                # 日期表：对比 TODAY，容差 stale_days 天（表级可覆盖）
+                tol = table_tolerance.get(tbl, stale_days)
                 max_val = None
                 if max_d and isinstance(max_d, (date, datetime)):
                     max_val = max_d if isinstance(max_d, date) else max_d.date()
 
-                if max_val and (TODAY - max_val).days <= stale_days:
+                if max_val and (TODAY - max_val).days <= tol:
                     level = "OK"
                     detail = f"{min_s} ~ {max_s}  |  {cnt:,} 行"
                 elif max_val:

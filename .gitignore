@@ -7,9 +7,15 @@ market/
 # ── git 跟踪的权威数据均为 CSV ──
 # daily/<symbol>.csv          个股日线
 # index/<code>.csv            多市场指数时间序列
-# fundamental/<表>/<期>.csv    财报
+# fundamental/<表>_<年>.csv    财报（按年拆分, 历史年份 git 对象复用）
 # macro/*.csv                 宏观
 # meta/*.csv                  基础信息
+
+# 旧版整表单 CSV（超 GitHub 100MB 硬阻断线, 已改按年拆分, 不再跟踪; PG 为权威库）
+data/fundamental/income_stmt.csv
+data/fundamental/balance_sheet.csv
+data/fundamental/cashflow.csv
+data/fundamental/financial_indicator.csv
 
 # Python
 __pycache__/
