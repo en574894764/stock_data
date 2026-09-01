@@ -148,8 +148,9 @@ def step_reconcile(cron: bool = False) -> bool:
 def step_backup(cron: bool = False) -> bool:
     import subprocess as sp
     log("GitHub 备份...")
-    # launchd Background 进程下 git add 扫描 8000+ CSV 偶发 60s 超时，
-    # 实测手动环境 ~13s，launchd 偶发 30~60s，留 600s 余量
+    # launchd Background 进程下 git 操作被调度器拖慢 10~30 倍：
+    # 手动 ~13s 的 add 在 launchd 下 60s+，4s 的 commit 可 120s+（2026-09-01 实测超时）
+    # → 所有 git 子进程 timeout 统一给足余量
     r = sp.run(["git", "add", "data/", "daily/", "fundamental/", "meta/", "macro/", "index/",
                 "scripts/", "*.py", ".gitignore"],
                capture_output=True, text=True, cwd=REPO, timeout=600)
@@ -157,17 +158,20 @@ def step_backup(cron: bool = False) -> bool:
         log(f"git add 失败 (exit={r.returncode}): {r.stderr[-200:]}", "ERROR", cron)
         return False
 
-    sr = sp.run(["git", "status", "--porcelain"], capture_output=True, text=True, cwd=REPO, timeout=10)
+    sr = sp.run(["git", "status", "--porcelain"], capture_output=True, text=True, cwd=REPO, timeout=60)
     changed = [l for l in sr.stdout.strip().split("\n") if l]
     if not changed: log("无变更"); return True
 
     today_str = date.today().strftime("%Y-%m-%d")
-    sp.run(["git", "commit", "-m", f"data: {today_str} pipeline auto-update\n\n{len(changed)} files changed"],
-           capture_output=True, text=True, cwd=REPO, timeout=120)
-    sp.run(["git", "pull", "--rebase", "origin", "main"], capture_output=True, text=True, cwd=REPO, timeout=120)
+    cr = sp.run(["git", "commit", "-m", f"data: {today_str} pipeline auto-update\n\n{len(changed)} files changed"],
+                capture_output=True, text=True, cwd=REPO, timeout=600)
+    if cr.returncode != 0:
+        log(f"git commit 失败 (exit={cr.returncode}): {cr.stderr[-200:]}", "ERROR", cron)
+        return False
+    sp.run(["git", "pull", "--rebase", "origin", "main"], capture_output=True, text=True, cwd=REPO, timeout=300)
 
     for i in range(3):
-        pr = sp.run(["git", "push", "origin", "main"], capture_output=True, text=True, cwd=REPO, timeout=180)
+        pr = sp.run(["git", "push", "origin", "main"], capture_output=True, text=True, cwd=REPO, timeout=600)
         if pr.returncode == 0: log(f"push ✅ ({len(changed)} files)"); return True
         log(f"push retry {i+1}: {pr.stderr[-200:]}", "WARN"); time.sleep(5)
     log("push 失败 3 次，放弃（备份未完成）", "ERROR", cron)

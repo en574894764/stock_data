@@ -66,6 +66,9 @@ HK_INDEX_NAMES = {"HSI": "恒生指数", "HSTECH": "恒生科技指数", "HSCEI"
 
 # 港股判定"落后"的容忍天数（港股交易日历与 A 股不同 + 数据源延迟）
 HK_LAG_TOLERANCE_DAYS = 7
+# 港股指数单独收紧：标准指数不断档，sina 源滞后 1~2 天正常；7 天太宽会漏掉
+# 周末+节假日缺口（实测 2026-08：HSI 停在 8/28 四天被误判 fresh 跳过）
+HK_INDEX_LAG_TOLERANCE_DAYS = 3
 # 港股按标的回看窗口：拉 last_date 之前 90 天内的行也一并补（近期断档自愈）
 HK_BACKFILL_WINDOW_DAYS = 90
 
@@ -466,7 +469,7 @@ def fetch_index(conn, pro, target: date, dry_run: bool = False) -> int:
                 cur.execute("SELECT MAX(trade_date) FROM index_daily WHERE symbol = %s", (sym,))
                 row = cur.fetchone()
             last_d = row[0] if row else None
-            if last_d and last_d >= target - timedelta(days=HK_LAG_TOLERANCE_DAYS):
+            if last_d and last_d >= target - timedelta(days=HK_INDEX_LAG_TOLERANCE_DAYS):
                 print(f"  港股指数 {sym} ✅ 新鲜 (last={last_d})")
                 continue
 
