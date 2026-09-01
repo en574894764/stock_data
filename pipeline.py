@@ -148,9 +148,14 @@ def step_reconcile(cron: bool = False) -> bool:
 def step_backup(cron: bool = False) -> bool:
     import subprocess as sp
     log("GitHub 备份...")
-    sp.run(["git", "add", "data/", "daily/", "fundamental/", "meta/", "macro/", "index/",
-            "scripts/", "*.py", ".gitignore"],
-           capture_output=True, text=True, cwd=REPO, timeout=60)
+    # launchd Background 进程下 git add 扫描 8000+ CSV 偶发 60s 超时，
+    # 实测手动环境 ~13s，launchd 偶发 30~60s，留 600s 余量
+    r = sp.run(["git", "add", "data/", "daily/", "fundamental/", "meta/", "macro/", "index/",
+                "scripts/", "*.py", ".gitignore"],
+               capture_output=True, text=True, cwd=REPO, timeout=600)
+    if r.returncode != 0:
+        log(f"git add 失败 (exit={r.returncode}): {r.stderr[-200:]}", "ERROR", cron)
+        return False
 
     sr = sp.run(["git", "status", "--porcelain"], capture_output=True, text=True, cwd=REPO, timeout=10)
     changed = [l for l in sr.stdout.strip().split("\n") if l]
@@ -158,13 +163,14 @@ def step_backup(cron: bool = False) -> bool:
 
     today_str = date.today().strftime("%Y-%m-%d")
     sp.run(["git", "commit", "-m", f"data: {today_str} pipeline auto-update\n\n{len(changed)} files changed"],
-           capture_output=True, text=True, cwd=REPO, timeout=60)
-    sp.run(["git", "pull", "--rebase", "origin", "main"], capture_output=True, text=True, cwd=REPO, timeout=60)
+           capture_output=True, text=True, cwd=REPO, timeout=120)
+    sp.run(["git", "pull", "--rebase", "origin", "main"], capture_output=True, text=True, cwd=REPO, timeout=120)
 
     for i in range(3):
-        pr = sp.run(["git", "push", "origin", "main"], capture_output=True, text=True, cwd=REPO, timeout=120)
-        if pr.returncode == 0: log(f"push ✅"); return True
-        log(f"push retry {i+1}", "WARN"); time.sleep(3)
+        pr = sp.run(["git", "push", "origin", "main"], capture_output=True, text=True, cwd=REPO, timeout=180)
+        if pr.returncode == 0: log(f"push ✅ ({len(changed)} files)"); return True
+        log(f"push retry {i+1}: {pr.stderr[-200:]}", "WARN"); time.sleep(5)
+    log("push 失败 3 次，放弃（备份未完成）", "ERROR", cron)
     return False
 
 
@@ -238,10 +244,16 @@ def main():
             log("✅ 全部新鲜")
             break
         if new_stale >= stale:
-            log(f"⚠️ 轮间无改善 ({stale} → {new_stale})，停止迭代。剩余缺口多为真实停牌/退市/无源标的。", "WARN")
+            # 区分"源端无更新"（系统正常）与"系统异常"（需介入）
+            # 源端无更新常见：akshare 港股小盘股断档、港交所休市、长假后源未刷新
+            log(f"⚠️ 轮间无改善 ({stale} → {new_stale})，停止迭代。多属源端无更新（akshare 港股断档/港交所休市），"
+                f"少数为真停牌/退市/无源标的。", "WARN")
             push_feishu_alert(
-                f"**{WARN} pipeline 收敛告警**\n"
+                f"**{WARN} pipeline 收敛告警（信息性，非系统异常）**\n"
                 f"stale {stale} → {new_stale} 无改善，已停止迭代。\n"
+                f"经验上多为 akshare 源端对部分港股标的近 N 天无更新（小盘股/低流动性），\n"
+                f"或港交所休市日属正常，非拉取逻辑故障。\n"
+                f"如需排查某只具体标的，看 `logs/fetch.log` 末尾该 ts_code 处理记录。\n"
                 f"剩余缺口明细见 {missing_path}")
             break
         stale = new_stale
