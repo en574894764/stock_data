@@ -132,6 +132,21 @@ def step_export(cron: bool = False) -> bool:
     return ok
 
 
+def step_factor(cron: bool = False) -> bool:
+    """因子更新: daily_basic 增量拉取 + 因子值增量计算 (PG-only, 不入 git)。
+    失败仅告警不阻塞主链路 — 因子是可再生数据, 次日自愈。"""
+    log("因子更新 (daily_basic + factor_value)...")
+    r1 = run([PY, str(REPO / "backfill_daily_basic.py"), "--days", "3"], timeout=900, cron=cron)
+    if r1.returncode != 0:
+        log(f"daily_basic 增量失败 (exit={r1.returncode}): {r1.stderr[-300:]}", "WARN", cron)
+        return False
+    r2 = run([PY, str(REPO / "scripts" / "compute_factors.py")], timeout=1800, cron=cron)
+    ok = r2.returncode == 0
+    if not ok:
+        log(f"因子计算失败 (exit={r2.returncode}): {r2.stderr[-300:]}", "WARN", cron)
+    return ok
+
+
 def step_reconcile(cron: bool = False) -> bool:
     """L2 周度对账质检（周六追加）：PG↔CSV 对账 / 生命周期 / 财报合理性 / 分布漂移。"""
     log("L2 对账质检 (reconcile)...")
@@ -267,6 +282,11 @@ def main():
         failures.append("export")
         push_feishu_alert(f"**{FAIL} pipeline export 失败**\n数据已写入 PG，CSV 导出失败，"
                           f"请手动重跑 scripts/export.py")
+
+    # ── 因子更新 (非阻塞, 失败仅告警) ──
+    if not args.skip_backup and not step_factor(args.cron):
+        push_feishu_alert("**{WARN} pipeline 因子更新失败 (非阻塞)**\n"
+                          "daily_basic/factor_value 更新未完成, 明日自动重试补齐。")
 
     github_ok = step_backup(args.cron) if not args.skip_backup else False
     stats = collect_db_stats()
