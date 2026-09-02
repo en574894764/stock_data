@@ -237,11 +237,12 @@ def main():
         lines.append(f"| {rowname} | " + " | ".join(f"{corr.iloc[i, j]:.2f}" for j in range(len(corr.columns))) + " |")
 
     # 等权组合
-    lines.append("\n## 3. 多因子组合 (截面 z-score 合成): 等权 vs 滚动IC加权\n")
-    lines.append("- IC 加权: 每期用截至上一调仓日的 12 期 IC 均值作权重 (无前视), IC≤0 的因子权重归零\n")
+    lines.append("\n## 3. 多因子组合 (截面 z-score 合成): 等权 vs 滚动IC加权 vs 正交化等权\n")
+    lines.append("- IC 加权: 每期用截至上一调仓日的 12 期 IC 均值作权重 (无前视), IC≤0 的因子权重归零")
+    lines.append("- 正交化: 按 12 期滚动 IC 降序, 逐因子对已入选因子截面回归取残差 (消除冗余信息), 残差再标准化后等权\n")
     icdf = pd.DataFrame(ic_series)  # index=调仓日, col=因子
     combo_qs = {}
-    for mode in ["equal", "ic_weight"]:
+    for mode in ["equal", "ic_weight", "orth"]:
         combo_rows = {}
         for t in rebal:
             if any(t not in f.index for f in factors.values()):
@@ -252,23 +253,52 @@ def main():
                 if w.sum() <= 0:
                     continue
                 w = w / w.sum()
+            elif mode == "orth":
+                past = icdf[icdf.index < t].tail(12)
+                icm = past.mean()
+                order = [n for n in icm.sort_values(ascending=False).index if n in factors and icm[n] > 0]
             else:
                 w = pd.Series(1.0, index=list(factors.keys()))
-            zs = []
-            for name, f in factors.items():
-                if w.get(name, 0) <= 0:
+
+            if mode == "orth":
+                # 顺序正交化: IC 强者先占位, 后来者只保留残差信息, 残差再标准化
+                zs, done = [], []
+                for name in order:
+                    row = factors[name].loc[t].dropna()
+                    keep = [c for c in row.index if c in uni and list_dates.get(c) is not None
+                            and t >= pd.Timestamp(list_dates[c]) + pd.Timedelta(days=120)]
+                    row = row[keep]
+                    if len(row) < 50:
+                        continue
+                    z = (row - row.mean()) / (row.std() if row.std() > 0 else 1.0)
+                    for prev in done:
+                        common = z.index.intersection(prev.dropna().index)
+                        if len(common) < 50:
+                            continue
+                        beta = (z[common] * prev[common]).sum() / (prev[common] ** 2).sum()
+                        z = z - beta * prev
+                    z = (z - z.mean()) / (z.std() if z.std() > 0 else 1.0)
+                    zs.append(z)
+                    done.append(z)
+                if len(zs) < 2:
                     continue
-                row = f.loc[t].dropna()
-                keep = [c for c in row.index if c in uni and list_dates.get(c) is not None
-                        and t >= pd.Timestamp(list_dates[c]) + pd.Timedelta(days=120)]
-                row = row[keep]
-                if len(row) < 50:
-                    zs = None; break
-                z = (row - row.mean()) / (row.std() if row.std() > 0 else 1.0)
-                zs.append(z * w[name])
-            if zs is None:
-                continue
-            combo_rows[t] = pd.concat(zs, axis=1).sum(axis=1)
+                combo_rows[t] = pd.concat(zs, axis=1).sum(axis=1, min_count=1)
+            else:
+                zs = []
+                for name, f in factors.items():
+                    if w.get(name, 0) <= 0:
+                        continue
+                    row = f.loc[t].dropna()
+                    keep = [c for c in row.index if c in uni and list_dates.get(c) is not None
+                            and t >= pd.Timestamp(list_dates[c]) + pd.Timedelta(days=120)]
+                    row = row[keep]
+                    if len(row) < 50:
+                        zs = None; break
+                    z = (row - row.mean()) / (row.std() if row.std() > 0 else 1.0)
+                    zs.append(z * w[name])
+                if zs is None:
+                    continue
+                combo_rows[t] = pd.concat(zs, axis=1).sum(axis=1)
         combo_factor = pd.DataFrame(combo_rows).T.sort_index()
 
         r = evaluate_single(f"combo_{mode}", combo_factor, fwd, daily_ret, rebal, uni, list_dates)
@@ -280,7 +310,7 @@ def main():
         s1, s5 = nav_stats(q[1]), nav_stats(q[QUANTILES])
         ls = nav_stats(q[QUANTILES] / q[1])
         ics = r["ics"]
-        label = "等权" if mode == "equal" else "IC加权"
+        label = {"equal": "等权", "ic_weight": "IC加权", "orth": "正交化等权"}[mode]
         lines.append(f"**{label}**: IC均值 {fmt(ics.mean())} | IR {fmt(ics.mean()/ics.std() if len(ics)>1 and ics.std()>0 else np.nan, False)} | "
                      f"IC正率 {fmt((ics>0).mean())}")
         lines.append(f"Q1(最差组) 年化 {fmt(s1['ann_ret'])} | Q5(最好组) 年化 {fmt(s5['ann_ret'])} | 多空年化 {fmt(ls['ann_ret'])}\n")
@@ -290,9 +320,9 @@ def main():
     w_now = (w_now / w_now.sum()).sort_values(ascending=False) if w_now.sum() > 0 else w_now
     lines.append("IC 加权最新权重: " + ", ".join(f"{k} {v*100:.0f}%" for k, v in w_now.items() if v > 0) + "\n")
 
-    # 样本内/外分段 (IC 加权组合 Q5; 若无则用等权)
-    seg_q = combo_qs.get("ic_weight", combo_qs.get("equal"))
-    lines.append("\n## 4. 样本内 / 样本外分段 (IC加权组合 Q5)\n")
+    # 样本内/外分段 (正交化组合 Q5; 若无则用等权)
+    seg_q = combo_qs.get("orth") if combo_qs.get("orth") is not None else combo_qs.get("equal")
+    lines.append("\n## 4. 样本内 / 样本外分段 (正交化组合 Q5)\n")
     split = "2023-01-01"
     lines.append("| 区间 | 年化 | 波动 | 夏普 | 最大回撤 |")
     lines.append("|---|---|---|---|---|")
