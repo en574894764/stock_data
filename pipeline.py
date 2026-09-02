@@ -133,7 +133,7 @@ def step_export(cron: bool = False) -> bool:
 
 
 def step_factor(cron: bool = False) -> bool:
-    """因子更新: daily_basic 增量拉取 + 因子值增量计算 (PG-only, 不入 git)。
+    """因子更新: daily_basic 增量拉取 + 因子值增量计算 + 拥挤度监控刷新 (PG-only, 不入 git)。
     失败仅告警不阻塞主链路 — 因子是可再生数据, 次日自愈。"""
     log("因子更新 (daily_basic + factor_value)...")
     r1 = run([PY, str(REPO / "backfill_daily_basic.py"), "--days", "3"], timeout=900, cron=cron)
@@ -141,10 +141,13 @@ def step_factor(cron: bool = False) -> bool:
         log(f"daily_basic 增量失败 (exit={r1.returncode}): {r1.stderr[-300:]}", "WARN", cron)
         return False
     r2 = run([PY, str(REPO / "scripts" / "compute_factors.py")], timeout=1800, cron=cron)
-    ok = r2.returncode == 0
-    if not ok:
+    if r2.returncode != 0:
         log(f"因子计算失败 (exit={r2.returncode}): {r2.stderr[-300:]}", "WARN", cron)
-    return ok
+        return False
+    r3 = run([PY, str(REPO / "scripts" / "crowding_monitor.py")], timeout=1200, cron=cron)
+    if r3.returncode != 0:
+        log(f"拥挤度监控失败 (exit={r3.returncode}): {r3.stderr[-300:]}", "WARN", cron)
+    return True
 
 
 def step_reconcile(cron: bool = False) -> bool:
