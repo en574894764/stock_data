@@ -237,43 +237,67 @@ def main():
         lines.append(f"| {rowname} | " + " | ".join(f"{corr.iloc[i, j]:.2f}" for j in range(len(corr.columns))) + " |")
 
     # 等权组合
-    lines.append("\n## 3. 等权多因子组合 (截面 z-score 合成)\n")
-    common_dates = sorted(set.intersection(*[set(f.index) for f in factors.values()]) & set(daily_ret.index))
-    combo_rows = {}
-    for t in common_dates:
-        zs = []
-        for name, f in factors.items():
-            row = f.loc[t].dropna()
-            keep = [c for c in row.index if c in uni and list_dates.get(c) is not None
-                    and t >= pd.Timestamp(list_dates[c]) + pd.Timedelta(days=120)]
-            row = row[keep]
-            if len(row) < 50:
-                zs = None; break
-            z = (row - row.mean()) / (row.std() if row.std() > 0 else 1.0)
-            zs.append(z)
-        if zs is None:
+    lines.append("\n## 3. 多因子组合 (截面 z-score 合成): 等权 vs 滚动IC加权\n")
+    lines.append("- IC 加权: 每期用截至上一调仓日的 12 期 IC 均值作权重 (无前视), IC≤0 的因子权重归零\n")
+    icdf = pd.DataFrame(ic_series)  # index=调仓日, col=因子
+    combo_qs = {}
+    for mode in ["equal", "ic_weight"]:
+        combo_rows = {}
+        for t in rebal:
+            if any(t not in f.index for f in factors.values()):
+                continue
+            if mode == "ic_weight":
+                past = icdf[icdf.index < t].tail(12)
+                w = past.mean().clip(lower=0)
+                if w.sum() <= 0:
+                    continue
+                w = w / w.sum()
+            else:
+                w = pd.Series(1.0, index=list(factors.keys()))
+            zs = []
+            for name, f in factors.items():
+                if w.get(name, 0) <= 0:
+                    continue
+                row = f.loc[t].dropna()
+                keep = [c for c in row.index if c in uni and list_dates.get(c) is not None
+                        and t >= pd.Timestamp(list_dates[c]) + pd.Timedelta(days=120)]
+                row = row[keep]
+                if len(row) < 50:
+                    zs = None; break
+                z = (row - row.mean()) / (row.std() if row.std() > 0 else 1.0)
+                zs.append(z * w[name])
+            if zs is None:
+                continue
+            combo_rows[t] = pd.concat(zs, axis=1).sum(axis=1)
+        combo_factor = pd.DataFrame(combo_rows).T.sort_index()
+
+        r = evaluate_single(f"combo_{mode}", combo_factor, fwd, daily_ret, rebal, uni, list_dates)
+        results[f"combo_{mode}"] = r
+        q = r["q_navs"]
+        combo_qs[mode] = q
+        if q is None or q.empty:
             continue
-        combo = pd.concat(zs, axis=1).mean(axis=1)
-        combo_rows[t] = combo
-    combo_factor = pd.DataFrame(combo_rows).T.sort_index()
+        s1, s5 = nav_stats(q[1]), nav_stats(q[QUANTILES])
+        ls = nav_stats(q[QUANTILES] / q[1])
+        ics = r["ics"]
+        label = "等权" if mode == "equal" else "IC加权"
+        lines.append(f"**{label}**: IC均值 {fmt(ics.mean())} | IR {fmt(ics.mean()/ics.std() if len(ics)>1 and ics.std()>0 else np.nan, False)} | "
+                     f"IC正率 {fmt((ics>0).mean())}")
+        lines.append(f"Q1(最差组) 年化 {fmt(s1['ann_ret'])} | Q5(最好组) 年化 {fmt(s5['ann_ret'])} | 多空年化 {fmt(ls['ann_ret'])}\n")
 
-    r = evaluate_single("combo_eq", combo_factor, fwd, daily_ret, rebal, uni, list_dates)
-    results["combo_eq"] = r
-    q = r["q_navs"]
-    s1, s5 = nav_stats(q[1]), nav_stats(q[QUANTILES])
-    ls = nav_stats(q[QUANTILES] / q[1])
-    ics = r["ics"]
-    lines.append(f"组合 IC均值 {fmt(ics.mean())} | IR {fmt(ics.mean()/ics.std() if len(ics)>1 and ics.std()>0 else np.nan, False)} | "
-                 f"IC正率 {fmt((ics>0).mean())}")
-    lines.append(f"Q1(最差组) 年化 {fmt(s1['ann_ret'])} | Q5(最好组) 年化 {fmt(s5['ann_ret'])} | 多空年化 {fmt(ls['ann_ret'])}\n")
+    # IC 加权最新权重快照
+    w_now = icdf.tail(12).mean().clip(lower=0)
+    w_now = (w_now / w_now.sum()).sort_values(ascending=False) if w_now.sum() > 0 else w_now
+    lines.append("IC 加权最新权重: " + ", ".join(f"{k} {v*100:.0f}%" for k, v in w_now.items() if v > 0) + "\n")
 
-    # 样本内/外分段
-    lines.append("## 4. 样本内 / 样本外分段 (组合 Q5)\n")
+    # 样本内/外分段 (IC 加权组合 Q5; 若无则用等权)
+    seg_q = combo_qs.get("ic_weight", combo_qs.get("equal"))
+    lines.append("\n## 4. 样本内 / 样本外分段 (IC加权组合 Q5)\n")
     split = "2023-01-01"
     lines.append("| 区间 | 年化 | 波动 | 夏普 | 最大回撤 |")
     lines.append("|---|---|---|---|---|")
     for label, lo, hi in [("样本内 2019-2022", args.start, split), ("样本外 2023-2026", split, args.end)]:
-        seg = q[QUANTILES][(q.index >= pd.Timestamp(lo)) & (q.index < pd.Timestamp(hi))]
+        seg = seg_q[QUANTILES][(seg_q.index >= pd.Timestamp(lo)) & (seg_q.index < pd.Timestamp(hi))]
         if len(seg) > 60:
             st = nav_stats(seg)
             lines.append(f"| {label} | {fmt(st['ann_ret'])} | {fmt(st['ann_vol'])} | {fmt(st['sharpe'],False)} | {fmt(st['max_dd'])} |")
@@ -283,7 +307,7 @@ def main():
     bench_df = pd.read_sql(sql, conn)
     bench_df["trade_date"] = pd.to_datetime(bench_df["trade_date"])
     bench = bench_df.set_index("trade_date")["pct_chg"].sort_index() / 100.0
-    bench_nav = (1 + bench.reindex(q.index).fillna(0)).cumprod()
+    bench_nav = (1 + bench.reindex(seg_q.index).fillna(0)).cumprod()
     b5 = nav_stats(bench_nav)
     lines.append(f"\n基准沪深300 同期: 年化 {fmt(b5['ann_ret'])} | 夏普 {fmt(b5['sharpe'],False)} | 最大回撤 {fmt(b5['max_dd'])}")
 

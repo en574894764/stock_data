@@ -3,13 +3,15 @@
 
 约定: 所有因子 value 越大 = 预期收益越高（方向已调好）。
 
-因子清单 (6 个原生因子):
+因子清单 (8 个原生因子):
   ret_20d_rev   20日反转: -(过去20日累计收益)。高=近期跌得多=预期反弹强
   turnover_20   -mean(20日换手率)。低换手溢价, 取负号
   ln_mv         -ln(总市值)。小市值溢价, 取负号 (total_mv 单位: 万元)
   ivol_60       -60日特质波动率(市场模型残差std, 基准=沪深300)。低波溢价, 取负号
   ep_ttm        1/pe_ttm。EP 价值因子, 亏损股为负(有意义, 保留)
   roe_lf        PIT 对齐的最近已披露 ROE (ann_date <= T, financial_indicator)
+  sue_gr        PIT 对齐的最新 netprofit_yoy (净利润同比, 成长/盈余惊喜代理)
+  sue_delta     同类型财报 netprofit_yoy 的环比变化 (同比加速度, SUE 代理)
 
 数据源: daily_quote(pct_chg) / daily_basic / index_daily(000300.SH) / financial_indicator
 注意: 收益计算全部基于 pct_chg 连乘 (复权口径), 不用 close 直接相除 (除权会错)
@@ -29,7 +31,7 @@ import psycopg2
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-FACTORS = ["ret_20d_rev", "turnover_20", "ln_mv", "ivol_60", "ep_ttm", "roe_lf"]
+FACTORS = ["ret_20d_rev", "turnover_20", "ln_mv", "ivol_60", "ep_ttm", "roe_lf", "sue_gr", "sue_delta"]
 
 FACTOR_DDL = """
 CREATE TABLE IF NOT EXISTS factor_value (
@@ -149,6 +151,34 @@ def roe_lf(conn, start: str, dates: pd.Index) -> pd.DataFrame:
     return out.astype(float)
 
 
+def sue_factors(conn, dates: pd.Index) -> tuple:
+    """盈余惊喜双因子 (均 PIT 对齐 ann_date <= T):
+    sue_gr    最新披露的 netprofit_yoy (成长/惊喜水平)
+    sue_delta 最新披露与前一同类型(report_type)披露的 netprofit_yoy 之差 (加速度, SUE 代理)
+    """
+    sql = ("SELECT ts_code, ann_date, report_type, netprofit_yoy FROM financial_indicator "
+           "WHERE ann_date IS NOT NULL AND netprofit_yoy IS NOT NULL "
+           "AND (ts_code LIKE '%.SZ' OR ts_code LIKE '%.SH')")
+    ev = pd.read_sql(sql, conn)
+    ev["ann_date"] = pd.to_datetime(ev["ann_date"])
+    # 同类型前值 → 同比加速度
+    ev = ev.sort_values(["ts_code", "report_type", "ann_date"])
+    ev["prev"] = ev.groupby(["ts_code", "report_type"])["netprofit_yoy"].shift(1)
+    ev["delta"] = ev["netprofit_yoy"] - ev["prev"]
+    # PIT 对齐: 同日多类型披露取最后一个事件
+    ev = ev.sort_values(["ts_code", "ann_date"]).drop_duplicates(["ts_code", "ann_date"], keep="last")
+    ts_idx = pd.to_datetime(pd.Index(dates))
+    gr = pd.DataFrame(index=dates, columns=ev["ts_code"].unique(), dtype=float)
+    dl = pd.DataFrame(index=dates, columns=ev["ts_code"].unique(), dtype=float)
+    for code, g in ev.groupby("ts_code"):
+        pos = np.searchsorted(g["ann_date"].values, ts_idx.values, side="right") - 1
+        valid = pos >= 0
+        idx = np.clip(pos, 0, len(g) - 1)
+        gr[code] = np.where(valid, g["netprofit_yoy"].values[idx], np.nan)
+        dl[code] = np.where(valid, g["delta"].values[idx], np.nan)
+    return gr.astype(float), dl.astype(float)
+
+
 def upsert_factor(conn, name: str, wide: pd.DataFrame, only_dates=None):
     df = wide.stack().rename("value").reset_index()
     df.columns = ["trade_date", "ts_code", "value"]
@@ -240,6 +270,12 @@ def main():
 
     n = upsert_factor(conn, "roe_lf", roe_lf(conn, start, ret_wide.index), only_dates)
     print(f"  roe_lf: {n}")
+
+    sue_gr_w, sue_dl_w = sue_factors(conn, ret_wide.index)
+    n = upsert_factor(conn, "sue_gr", sue_gr_w, only_dates)
+    print(f"  sue_gr: {n}")
+    n = upsert_factor(conn, "sue_delta", sue_dl_w, only_dates)
+    print(f"  sue_delta: {n}")
 
     cur = conn.cursor()
     cur.execute("SELECT factor_name, COUNT(*), MIN(trade_date), MAX(trade_date) "
