@@ -299,7 +299,9 @@ def _export_table_by_year(conn, pg_table: str, name: str, out_dir: Path,
             skipped += 1
             continue
         cur.execute(f"""
-            SELECT * FROM {pg_table} WHERE {year_col} = {year} ORDER BY 1, 2
+            -- ORDER BY 1,2 会在 (ts_code, report_year) 并列组内乱序(同股同年多份报告),
+            -- update/vacuum 扰动后行序洗牌 → git 全文件重写。加 report_type 后为唯一键。
+            SELECT * FROM {pg_table} WHERE {year_col} = {year} ORDER BY 1, 2, 3
         """)
         rows = cur.fetchall()
         if not rows:
