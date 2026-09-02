@@ -243,7 +243,10 @@ def export_daily(conn, table: str, dir_name: str, ts_col: str, cols: list[str],
             cur.execute(f"""
                 SELECT {col_csv} FROM {src}
                 WHERE {ts_col} >= '{start}' AND {ts_col} <= '{end}' {filter_and}
-                ORDER BY {ts_col}
+                -- 二级排序键必须有: 仅 ORDER BY trade_date 时同日内行序由 PG 堆表顺序决定,
+                -- update/vacuum 一扰动整文件行序就变 → git 全文件重写 → 仓库膨胀
+                -- (实测 2026-09: etf/hk Q3 包每天 18 万行全变, a_shares 靠运气没变)
+                ORDER BY {ts_col}, "{cols[0]}"
             """)
             _write_csv(csv_path, cur.fetchall(), cols)
             total_rows += count
