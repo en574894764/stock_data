@@ -13,7 +13,8 @@
 3. [回测方法论](#三回测方法论)
 4. [每日复盘体系](#四每日复盘体系)
 5. [本项目落地路线图](#五本项目落地路线图)
-6. [附录：术语表与参考资料](#六附录术语表与参考资料)
+6. [成型方法论与开源实现地图](#六成型方法论与开源实现地图)
+7. [附录：术语表与参考资料](#七附录术语表与参考资料)
 
 ---
 
@@ -390,7 +391,135 @@ roe_lf 的 IC 从历史正走到 2019-2026 的 -0.8%，就是完整的退役剧�
 
 ---
 
-## 六、附录：术语表与参考资料
+## 六、成型方法论与开源实现地图
+
+> 按生产链六环节逐一盘点：每个环节「学术/工业界的成型方法论」+「可直接用的开源实现」+「与本项目的关系」。
+> ⚠️ 维护状态是选型的生死线——量化生态里一半以上的名库已经死了（Quantopian 2020 年倒闭带走了一批）。
+
+### 6.1 数据层
+
+| 方法论 | 内容 | 开源实现 | 状态 |
+|---|---|---|---|
+| PIT 数据规范 | Point-in-Time：财报用公告日、成分股用当时名单，防前视 | Qlib 数据格式（二进制列存 + 表达式引擎，读取比 pandas 快 10x） | ✅ 微软活跃维护 |
+| 全量历史（防幸存者） | 含退市股的完整股票池 | 本项目 PG（daily_basic 含退市股，已验证） | ✅ 自建 |
+| A 股数据源 | — | akshare / tushare / baostock | ✅ 本项目前两者在用 |
+
+**本项目定位**：PG + factor_value 的自建数据层已达到准机构标准（PIT + 全退市股 + 每日自动更新），不必迁移 Qlib 数据格式——除非未来接入其 ML 工作流。
+
+### 6.2 因子挖掘
+
+| 方法论 | 内容 | 开源实现 | 状态 |
+|---|---|---|---|
+| **WorldQuant 101 Alphas**（2015 论文） | 101 个公式化量价因子（如 `alpha#6 = -correlation(open, volume, 10)` 量价背离），量化因子挖掘的圣经 | 社区 Python 复刻版多个（CSDN/GitHub 搜 "101 Alphas python"） | 论文经典，复刻质量参差 |
+| **Barra 风格因子体系** | 风险模型九大风格因子（Beta/动量/规模/波动/价值/杠杆/成长/流动性/盈利） | 无官方开源；自建需回归体系 | 方法论成型，实现靠自己 |
+| **Fama-French 因子** | 三/五因子模型，学术标准 | Ken French 官网数据 + statsmodels 回归 | ✅ 数据免费下载 |
+| **遗传规划挖因子**（华泰金工系列） | GP 暴力生成 + 进化筛选因子，以 RankIC/互信息为适应度 | **gplearn**（scikit-learn 风格 GP 库） | ✅ 活跃但慢（纯 Python） |
+| **Qlib Alpha158/Alpha360** | 158/360 个预置量价因子，ML 选股的标准起跑线 | **Qlib** 内置（`qlib.contrib.data.handler`） | ✅ 微软活跃 |
+| **LLM 因子发现**（2025 前沿） | 用 LLM Agent 自动提出→回测→迭代因子 | Qlib **RD-Agent** | 🆕 前沿探索 |
+
+**本项目定位**：21 因子手工构建 = Alpha158 的子集思路（我们已覆盖其大部分信息维度，且用 21 因子全量检验证明了技术指标类同源冗余）。进阶路径：拿 101 Alphas 里未覆盖的结构因子（量价相关性类）补库，用 gplearn 或 RD-Agent 做自动挖掘是 P3 以后的事。
+
+### 6.3 因子检验
+
+| 方法论 | 内容 | 开源实现 | 状态 |
+|---|---|---|---|
+| **Alphalens tear sheet**（Quantopian 遗产） | 因子分析标准报告：IC 分析 / 分层收益 / 换手率 / 分组统计，一个函数出全套图表 | **alphalens-reloaded**（stefan-jansen 维护版） | ✅ 2025-06 仍发版，支持 Python 3.13 |
+| IC/IR + 分层回测 | 见第三章 3.3 | 本项目 `factor_eval.py` | ✅ 自建，功能对标 |
+
+**本项目定位**：factor_eval 的数字产出已对标 alphalens，但**可视化差距大**（我们只有 markdown 表格，alphalens 有完整 tear sheet 图组）。低成本升级：`pip install alphalens-reloaded`，把 factor_value 宽表喂给 `create_full_tear_sheet()`，半小时接通。
+
+### 6.4 回测
+
+两大流派，先想清楚再选：
+
+| 流派 | 原理 | 优势 | 劣势 | 代表 |
+|---|---|---|---|---|
+| **向量化** | 全市场矩阵运算，无事件循环 | 极快（千万行秒级），参数扫描神器 | 复杂订单逻辑/路径依赖难表达 | **vectorbt**、Qlib backtest |
+| **事件驱动** | 逐 bar/逐 tick 模拟撮合 | 拟真度高，复杂逻辑任意写 | 慢（大规模数据小时级） | backtrader、vnpy、NautilusTrader |
+
+具体项目（2026 年视角）：
+
+| 项目 | Stars | 状态 | 一句话评价 |
+|---|---|---|---|
+| **vectorbt** | ~4.3k（PRO 收费 ~$50/月） | ✅ 活跃 | **本项目已在用**。研究/参数优化之王，无实盘 |
+| **Qlib backtest** | ~37k（全家桶） | ✅ 微软活跃 | 向量化 + ML 工作流一体化，学习成本高 |
+| backtrader | ~15k | ☠️ 2019 年起停更 | 经典教材，勿用于新项目（Python 3.10+ 兼容性差） |
+| zipline-reloaded | ~1.2k | ⚠️ 勉强维持 | Pipeline API 曾是因子投资最佳工具，风光不再 |
+| vnpy | ~25k | ✅ 活跃（4.0） | 国内实盘标准，CTA 强，多因子选股需自扩 |
+| NautilusTrader | ~19k | ✅ 活跃 | Rust 核心机构级，回测/实盘同代码路径，学习曲线陡 |
+| QuantConnect LEAN | ~16k | ✅ 活跃 | 云端生态最全，C# 核心不支持 A 股 |
+| Backtesting.py / bt | — | ⚠️ | 单标的/小众场景，被 vectorbt 覆盖 |
+
+**本项目定位**：factor_eval 是纯 pandas 手搓的向量化回测（本质与 vectorbt 同思路），James 已有 vectorbt 本地回测经验——**月度调仓的因子组合回测留在自建框架**（逻辑透明可控），**参数扫描/敏感性分析交给 vectorbt**（第三章 3.6 的调仓日±3天/Top-N±20 只实验）。两者互补而非互替。
+
+### 6.5 组合优化
+
+| 方法论 | 内容 | 开源实现 | 状态 |
+|---|---|---|---|
+| **Markowitz 均值方差**（1952） | 收益-风险 frontier 优化 | **PyPortfolioOpt** | ✅ 活跃（2026-03 仍在发版） |
+| **Black-Litterman** | 观点+市场先验融合，解决输入敏感 | PyPortfolioOpt 内置 | ✅ |
+| **风险平价 / HRP** | 按 risk contribution 等权 / 层次聚类分配 | PyPortfolioOpt 内置 HRP；riskfolio-lib（更全，含 CVaR/最坏-case 优化） | ✅ 两者都活跃 |
+| 约束优化 | 个股上限/行业中性/换手限制 | cvxpy（底层凸优化求解器，PyPortfolioOpt 的引擎） | ✅ | 
+
+**PyPortfolioOpt 亮点**（scikit-learn 风格 API，5 行代码出结果）：
+
+```python
+from pypfopt import EfficientFrontier, risk_models, expected_returns
+mu = expected_returns.mean_historical_return(df)      # 或直接喂因子预期收益
+S  = risk_models.sample_cov(df)
+ ef = EfficientFrontier(mu, S, weight_bounds=(0, 0.05)) # 个股上限 5%
+w  = ef.max_sharpe()
+
+# 离散分配：A 股一手 100 股的现实问题它管了
+from pypfopt.discrete_allocation import DiscreteAllocation
+alloc, leftover = DiscreteAllocation(w, latest_prices, 1000000).greedy_portfolio()
+```
+
+**本项目定位**：等权是起点（已实证难被显著打败），升级路径明确——**等权 → 1/ivol 风险平价 → PyPortfolioOpt（max_sharpe + 行业约束 + 离散分配）**。P1 优先级建议引入：`weight_bounds + DiscreteAllocation` 直接解决"一手 100 股导致权重漂移"的实操痛点。
+
+### 6.6 归因与业绩分析
+
+| 方法论 | 内容 | 开源实现 | 状态 |
+|---|---|---|---|
+| **Brinson 归因** | 配置收益 vs 选股收益（BF + GRAP 算法，见 4.2） | 无成熟独立库，自建（公式简单） | 方法论成型 |
+| **因子归因（X-Sigma-Rho）** | 风格/行业/特异分解 | 无成熟开源（米筐 RQAlpha 是闭源 SAAS） | 自建（回归即可，见 4.2 简化版） |
+| **业绩 tearsheet** | 净值/回撤/月度热力图/滚动指标一页纸 | **quantstats**（`qs.reports.html(returns, benchmark)` 一行出网页报告） | ✅ 活跃，强烈推荐 |
+| pyfolio | Quantopian 业绩分析遗產 | pyfolio-reloaded | ⚠️ 维护弱，被 quantstats 取代 |
+
+**本项目定位**：归因自建（原料全在库里），**quantstats 是即刻可用的免费午餐**——把每日组合收益序列（待建的信号日志产出）喂进去，一键生成专业 tearsheet，飞书周报直接引用。
+
+### 6.7 实盘执行
+
+| 方案 | 性质 | 适用 | 备注 |
+|---|---|---|---|
+| **vnpy**（~25k stars，活跃） | 开源全栈平台 | 期货/股票 CTA、未来全自动 | 国内接口最全（CTP/XTP/奇点），4.0 新增 alpha 模块（多因子 ML→实盘一站式） |
+| **WonderTrader** | 开源，C++ 核心 | 高性能需求 | 架构亮点：信号/执行分离 + 多引擎（CTA/SEL/HFT），文档少 |
+| 券商 QMT / PTrade | 券商提供（半闭源） | 散户实盘主流 | 需开通权限（通常 50 万门槛，部分可谈）；Python 接口，因子信号落地的现实路径 |
+| 半自动（信号推送 + 手动下单） | 自建 | 当前阶段最优 | 信号生成器（P0）→ 飞书推送名单 → 手动执行；月度调仓完全够用 |
+
+**本项目定位**：现阶段半自动最合理（月度调仓 30-50 只，手动执行 20 分钟）。未来上量后：信号生成器不动，执行层接 QMT（券商量化终端）或 vnpy XTP 网关。
+
+### 6.8 选型总表：给本项目的推荐组合
+
+```
+数据层     PG 自建（已成）+ akshare/tushare（已在用）
+因子层     自建 21 因子（已成）→ 补 101 Alphas 结构类因子（P2）
+检验层     factor_eval（已成）+ alphalens-reloaded tear sheet（P1，半小时接通）
+合成层     等权/正交化（已成）→ PyPortfolioOpt 优化 + 离散分配（P1）
+回测层     自建向量化（已成）+ vectorbt 参数扫描（已在用）
+复盘层     crowding_monitor（已成）+ quantstats tearsheet（P1）+ 归因回归（P2）
+执行层     半自动：信号 → 飞书 → 手动（P0 建信号生成器）→ QMT（未来）
+挖掘层     gplearn / Qlib RD-Agent（P3，等前面全稳了再说）
+```
+
+**三条选型纪律**：
+1. **优先用活跃维护的库**（quantstats/PyPortfolioOpt/alphalens-reloaded/vectorbt），停更的名库（backtrader/pyfolio/zipline）只做学习材料
+2. **每一层保留自建核心**：数据层和检验层是护城河，不能被任何框架锁死；优化/可视化这类外围用轮子
+3. **引入一个用透一个**：按 P0→P1→P2 节奏，每次只加一个新依赖
+
+---
+
+## 七、附录：术语表与参考资料
 
 ### 术语表
 
