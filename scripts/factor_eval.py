@@ -49,41 +49,95 @@ def load_universe_filter(conn) -> set:
     return set(ok["ts_code"]), dict(zip(ok["ts_code"], pd.to_datetime(ok["list_date"])))
 
 
+CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "factor_cache")
+
+
+def _pivot_unique(df, index, columns, values):
+    """pivot 优先 (快); 数据有重复时退回 groupby-last 语义。
+    两轴排序: 列序必须确定 (pivot_table 是 sorted), 否则 rank(method='first')
+    对并列值的处理依赖列顺序 → 分层结果不可复现"""
+    try:
+        w = df.pivot(index=index, columns=columns, values=values)
+    except ValueError:
+        w = df.pivot_table(index=index, columns=columns, values=values, aggfunc="last")
+    return w.sort_index().sort_index(axis=1)
+
+
 def load_factors(conn, start, end) -> dict[str, pd.DataFrame]:
-    sql = (f"SELECT factor_name, trade_date, ts_code, value FROM factor_value "
-           f"WHERE trade_date >= '{start}' AND trade_date <= '{end}'")
-    df = pd.read_sql(sql, conn)
+    """因子宽表: parquet 全量缓存 + 增量补齐 (PG 为权威, 缓存可再生, index 统一 datetime64)"""
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    cur = conn.cursor()
+    cur.execute("SELECT DISTINCT factor_name FROM factor_value ORDER BY factor_name")
+    names = [r[0] for r in cur.fetchall()]
+    cur.close()
+    lo, hi = pd.Timestamp(start), pd.Timestamp(end)
     out = {}
-    for name, g in df.groupby("factor_name"):
-        out[name] = g.pivot_table(index="trade_date", columns="ts_code", values="value", aggfunc="last").sort_index()
+    for name in names:
+        f = os.path.join(CACHE_DIR, f"{name}.parquet")
+        if os.path.exists(f):
+            wide = pd.read_parquet(f)
+            cur = conn.cursor()
+            cur.execute("SELECT MAX(trade_date) FROM factor_value WHERE factor_name = %s", (name,))
+            pg_max = cur.fetchone()[0]
+            cur.close()
+            if pg_max is not None and pd.Timestamp(pg_max) > wide.index.max():
+                df = pd.read_sql(
+                    "SELECT trade_date, ts_code, value FROM factor_value "
+                    f"WHERE factor_name = '{name}' AND trade_date > '{wide.index.max().date()}'", conn)
+                if len(df):
+                    inc = _pivot_unique(df, "trade_date", "ts_code", "value")
+                    inc.index = pd.to_datetime(inc.index)
+                    wide = pd.concat([wide, inc]).sort_index().sort_index(axis=1)
+                    wide.to_parquet(f)
+        else:
+            df = pd.read_sql(
+                f"SELECT trade_date, ts_code, value FROM factor_value WHERE factor_name = '{name}'", conn)
+            wide = _pivot_unique(df, "trade_date", "ts_code", "value")
+            wide.index = pd.to_datetime(wide.index)
+            wide.to_parquet(f)
+        w = wide.loc[(wide.index >= lo) & (wide.index <= hi)]
+        out[name] = w.sort_index(axis=1)
     return out
 
 
-def load_fwd_returns(conn, start, end, horizon=REBAL) -> pd.DataFrame:
-    """T+1 → T+horizon 前向收益 (pct_chg 复权口径)"""
-    sql = ("SELECT ts_code, trade_date, pct_chg FROM daily_quote "
-           f"WHERE trade_date >= '{start}' AND trade_date <= '{end}' "
-           "AND (ts_code LIKE '%.SZ' OR ts_code LIKE '%.SH')")
-    df = pd.read_sql(sql, conn)
-    df["pct_chg"] = pd.to_numeric(df["pct_chg"], errors="coerce")
-    df["ret"] = df["pct_chg"] / 100.0
-    wide = df.pivot_table(index="trade_date", columns="ts_code", values="ret", aggfunc="last").sort_index()
-    logret = np.log1p(wide.clip(-0.95, 10))
-    cum = logret.cumsum()
-    # fwd(T) = T+1 收盘买入 → T+1+horizon 收盘卖出
-    fwd = np.exp(cum.shift(-(1 + horizon)) - cum.shift(-1)) - 1.0
-    return fwd
-
-
 def load_daily_returns(conn, start, end) -> pd.DataFrame:
-    """全区间日收益 (回测净值用)"""
-    sql = ("SELECT ts_code, trade_date, pct_chg FROM daily_quote "
-           f"WHERE trade_date >= '{start}' AND trade_date <= '{end}' "
-           "AND (ts_code LIKE '%.SZ' OR ts_code LIKE '%.SH')")
-    df = pd.read_sql(sql, conn)
-    df["pct_chg"] = pd.to_numeric(df["pct_chg"], errors="coerce")
-    wide = df.pivot_table(index="trade_date", columns="ts_code", values="pct_chg", aggfunc="last").sort_index() / 100.0
-    return wide
+    """全区间日收益 (回测净值用): parquet 缓存, (ts_code, trade_date) 由 PK 保证唯一"""
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    f = os.path.join(CACHE_DIR, "_daily_ret.parquet")
+    lo, hi = pd.Timestamp(start), pd.Timestamp(end)
+    if os.path.exists(f):
+        wide = pd.read_parquet(f)
+        cur = conn.cursor()
+        cur.execute("SELECT MAX(trade_date) FROM daily_quote WHERE ts_code LIKE '%%.SZ' OR ts_code LIKE '%%.SH'")
+        pg_max = cur.fetchone()[0]
+        cur.close()
+        if pg_max is not None and pd.Timestamp(pg_max) > wide.index.max():
+            df = pd.read_sql(
+                "SELECT ts_code, trade_date, pct_chg FROM daily_quote "
+                f"WHERE (ts_code LIKE '%.SZ' OR ts_code LIKE '%.SH') AND trade_date > '{wide.index.max().date()}'",
+                conn)
+            if len(df):
+                df["pct_chg"] = pd.to_numeric(df["pct_chg"], errors="coerce")
+                inc = _pivot_unique(df, "trade_date", "ts_code", "pct_chg").sort_index() / 100.0
+                inc.index = pd.to_datetime(inc.index)
+                wide = pd.concat([wide, inc]).sort_index().sort_index(axis=1)
+                wide.to_parquet(f)
+    else:
+        df = pd.read_sql(
+            "SELECT ts_code, trade_date, pct_chg FROM daily_quote "
+            "WHERE trade_date >= '2015-01-01' AND (ts_code LIKE '%.SZ' OR ts_code LIKE '%.SH')", conn)
+        df["pct_chg"] = pd.to_numeric(df["pct_chg"], errors="coerce")
+        wide = _pivot_unique(df, "trade_date", "ts_code", "pct_chg") / 100.0
+        wide.index = pd.to_datetime(wide.index)
+        wide.to_parquet(f)
+    return wide.loc[(wide.index >= lo) & (wide.index <= hi)].sort_index(axis=1)
+
+
+def fwd_from_daily(daily_wide: pd.DataFrame, horizon=REBAL) -> pd.DataFrame:
+    """T+1 → T+horizon 前向收益 (pct_chg 复权口径); 从日收益矩阵派生, 不再重复查库"""
+    logret = np.log1p(daily_wide.clip(-0.95, 10))
+    cum = logret.cumsum()
+    return np.exp(cum.shift(-(1 + horizon)) - cum.shift(-1)) - 1.0
 
 
 def rebalance_dates(dates: pd.Index, start, end) -> list:
@@ -116,40 +170,57 @@ def evaluate_single(name: str, factor: pd.DataFrame, fwd: pd.DataFrame, daily_re
             ics.append((t, ic))
     res["ics"] = pd.Series(dict(ics))
 
-    # 分层回测
-    navs = {q: [1.0] for q in range(1, QUANTILES + 1)}
+    # 分层回测 (向量化): 截面 rank+qcut 逐调仓日, 持有期收益用矩阵切片一次算完
+    # NOTE 2026-09-04: 本向量化版顺带修复了旧逐日版的 off-by-one bug ——
+    #   旧版 navs 列表带初始 [1.0] 与 nav_dates 错位 1, DataFrame 构造时初始值占住首日,
+    #   整条净值序列滞后一天且最后一个交易日收益被丢弃 (7.7 年年化偏差 ~0.1-0.4pp)。
+    #   本版 blocks 不含初始值, 收益序列与日期一一对应。IC 类指标不经 navs, 不受影响。
+    dr_idx, dr_cols = daily_ret.index, daily_ret.columns
+    blocks = {q: [] for q in range(1, QUANTILES + 1)}   # 每组每期的日收益数组
     nav_dates = []
     for t in rebal_dates:
         if t not in factor.index:
             continue
         row = factor.loc[t].dropna()
-        row = row[[c for c in row.index if c in uni and
-                   (t - pd.Timedelta(days=0)) > pd.Timestamp(list_dates.get(c, pd.Timestamp("1900-01-01"))) + pd.Timedelta(days=120)]]
-        # 上市满 120 自然日
-        keep = [c for c in row.index if list_dates.get(c) is not None and
-                t >= pd.Timestamp(list_dates[c]) + pd.Timedelta(days=120)]
+        keep = [c for c in row.index if c in uni and list_dates.get(c) is not None
+                and t > pd.Timestamp(list_dates[c]) + pd.Timedelta(days=120)]
         row = row[keep]
-        if len(row) < 50:
-            for q in navs: navs[q].append(navs[q][-1])
-            nav_dates.append(t)
-            continue
-        try:
-            qcut = pd.qcut(row.rank(method="first"), QUANTILES, labels=False) + 1
-        except ValueError:
-            for q in navs: navs[q].append(navs[q][-1])
-            nav_dates.append(t)
-            continue
-        pos_dates = [d for d in daily_ret.index if d > t][:REBAL]
+        qcut = None
+        if len(row) >= 50:
+            try:
+                qcut = pd.qcut(row.rank(method="first"), QUANTILES, labels=False) + 1
+            except ValueError:
+                qcut = None
+        pos_dates = [d for d in dr_idx if d > t][:REBAL]
         if not pos_dates:
             break
-        for d in pos_dates:
-            nav_dates.append(d)
-            for q in range(1, QUANTILES + 1):
-                stocks = qcut[qcut == q].index.intersection(daily_ret.columns)
-                r = daily_ret.loc[d, stocks].dropna() if d in daily_ret.index else pd.Series(dtype=float)
-                day_ret = r.mean() if len(r) else 0.0
-                navs[q].append(navs[q][-1] * (1 + day_ret - COST * 2 / REBAL))
-    qdf = pd.DataFrame({q: navs[q][:len(nav_dates)] for q in navs}, index=nav_dates[:len(nav_dates)])
+        if qcut is None:
+            # 截面不足/qcut 失败: 该期净值持平 (复刻原逐日版行为)
+            nav_dates.append(t)
+            for q in blocks:
+                blocks[q].append(np.zeros(1))
+            continue
+        nav_dates.extend(pos_dates)
+        row_pos = dr_idx.get_indexer(pos_dates)
+        stocks = qcut.index.intersection(dr_cols)
+        col_pos = dr_cols.get_indexer(stocks)
+        m = daily_ret.iloc[row_pos, col_pos].to_numpy(dtype=np.float64)   # 持有期 × 入选股
+        q_labels = qcut.loc[stocks].to_numpy()
+        for q in range(1, QUANTILES + 1):
+            sub = m[:, q_labels == q]
+            if sub.shape[1]:
+                with np.errstate(invalid="ignore"):
+                    dr = np.nanmean(sub, axis=1)
+                dr = np.where(np.isfinite(dr), dr, 0.0)
+            else:
+                dr = np.zeros(len(pos_dates))
+            blocks[q].append(dr - COST * 2 / REBAL)
+
+    if not nav_dates:
+        return res
+    r_idx = pd.DatetimeIndex(nav_dates)
+    qdf = pd.DataFrame({q: np.concatenate(blocks[q]) for q in range(1, QUANTILES + 1)}, index=r_idx)
+    qdf = (1.0 + qdf).cumprod()
     qdf = qdf[~qdf.index.duplicated(keep="last")]
     res["q_navs"] = qdf
     return res
@@ -189,12 +260,9 @@ def main():
     load_start = (pd.Timestamp(args.start) - pd.Timedelta(days=40)).strftime("%Y-%m-%d")
     factors = load_factors(conn, args.start, args.end)
     print(f"因子: {list(factors.keys())}")
-    fwd = load_fwd_returns(conn, load_start, args.end)
+    # parquet 缓存层已统一 index 为 datetime64; fwd 从日收益矩阵派生 (不再重复查库)
     daily_ret = load_daily_returns(conn, load_start, args.end)
-    # 统一 index 为 DatetimeIndex: psycopg2 返回 datetime.date, 与 Timestamp 混用比较会 TypeError / 永不相等
-    factors = {k: v.set_axis(pd.to_datetime(v.index)) for k, v in factors.items()}
-    fwd = fwd.set_axis(pd.to_datetime(fwd.index))
-    daily_ret = daily_ret.set_axis(pd.to_datetime(daily_ret.index))
+    fwd = fwd_from_daily(daily_ret)
     rebal = rebalance_dates(daily_ret.index, args.start, args.end)
     print(f"调仓日: {len(rebal)} 期 ({rebal[0].date()} ~ {rebal[-1].date()})")
 

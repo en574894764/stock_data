@@ -30,3 +30,4 @@ logs/
 
 # The reports
 reports/
+factor_cache/
