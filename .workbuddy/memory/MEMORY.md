@@ -37,3 +37,17 @@
 - **不要用 git-lfs 存每日全量重写的 CSV**：免费配额 1GB 存储/月带宽，每天 ~300MB 新对象 3-4 天爆配额
 - **git 历史已 filter-repo 重写（2026-09-01）**：4 个 fundamental 整表大 CSV 的历史 blob 已移除，.git 3.9GB→1.5GB，已 force push；重写前完整备份在 `/Users/james/workspace/stock_data_backup_20260901.bundle`（1.6GB，确认无误后可删）
 - filter-repo 踩坑：失败会在 `.git/filter-repo/` 留 `already_ran` 标记导致重跑被拦（EOFError），须先 `rm -rf .git/filter-repo`；默认移除 origin remote 事后重加
+
+## 量化因子体系（2026-09-03 建成）
+- **factor_value 表** (PG-only 不导 CSV): PK (factor_name, trade_date, ts_code), 约定 value 越大预期收益越高; 21 个因子 (8 原生 + 13 技术指标), ~2.8 亿行, 2015 起
+- **每日更新**: pipeline step_factor (export 后 backup 前, 非阻塞): backfill_daily_basic --days 3 → compute_factors 增量 (400 天窗口, 回写最近 10 日, 实测 2 分钟) → crowding_monitor
+- **生产组合**: 6 因子 ret_20d_rev/turnover_20/ivol_60/ln_mv/ep_ttm/sue_delta 等权, Q5 年化 ~22%, 样本外 2023-2026 夏普 1.06
+- **已实证结论**: 技术指标 (MACD/RSI/KDJ 等) IC 2.6-4.2% 全部弱于原生因子, 与 ret_20d_rev/ivol_60 同源 (相关 0.6-0.95), 不进组合; roe_lf/sue_gr 本周期失效 (2019-2026 白马还债); IC 加权跑输等权 (冗余集中)
+- **因子脚本**: scripts/compute_factors.py (全量 --start 2015-01-01 / 增量无参), scripts/factor_eval.py (IC/IR/分层/三模式组合), scripts/crowding_monitor.py (拥挤度分位)
+- index_daily.pct_chg 曾历史性 NULL → 已用 close LAG 补全 (2026-09-03); compute_factors 基准收益用 close 自算
+
+## 常见陷阱（因子相关）
+- **因子宽表股票池 ⊄ 行情矩阵股票池** (daily_basic/financial_indicator 含退市股): 任何 `.loc[d, stocks]` 取数前必须先 `stocks.intersection(matrix.columns)`, 否则 KeyError (此坑踩过 3 次)
+- psycopg2 read_sql 返回 trade_date 是 datetime.date 对象, 与 pd.Timestamp 混用: `in` 永远 False (静默跳过) 或比较 TypeError → 载入后统一 `set_axis(pd.to_datetime(index))`
+- upsert 千万行: executemany 小时级不可用, 必须 CSV 落盘 → copy_expert 进 _staging_factor → INSERT ON CONFLICT (分钟级)
+- tushare daily_basic 的 trade_cal.is_open 是 varchar ('1' 非 1)
