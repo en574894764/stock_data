@@ -12,6 +12,9 @@
   roe_lf        PIT 对齐的最近已披露 ROE (ann_date <= T, financial_indicator)
   sue_gr        PIT 对齐的最新 netprofit_yoy (净利润同比, 成长/盈余惊喜代理)
   sue_delta     同类型财报 netprofit_yoy 的环比变化 (同比加速度, SUE 代理)
+  技术指标横截面化 13 个 (见 technical_factors, 均已方向化):
+    macd_dif_n / macd_hist_n / rsi_14 / bias_20 / kdj_j / cci_14 / wr_14
+    boll_bw_20 / boll_pos_20 / atr_14_n / obv_slope_20 / mfi_14 / ma_ratio_5_20
 
 数据源: daily_quote(pct_chg) / daily_basic / index_daily(000300.SH) / financial_indicator
 注意: 收益计算全部基于 pct_chg 连乘 (复权口径), 不用 close 直接相除 (除权会错)
@@ -179,6 +182,96 @@ def sue_factors(conn, dates: pd.Index) -> tuple:
     return gr.astype(float), dl.astype(float)
 
 
+def load_daily_col(conn, start: str, col: str) -> pd.DataFrame:
+    """daily_quote 任意列 → 宽表 (index=date, columns=ts_code)"""
+    sql = (f"SELECT ts_code, trade_date, {col} FROM daily_quote "
+           f"WHERE trade_date >= '{start}' AND (ts_code LIKE '%%.SZ' OR ts_code LIKE '%%.SH')")
+    df = pd.read_sql(sql, conn)
+    df[col] = pd.to_numeric(df[col], errors="coerce")
+    wide = df.pivot_table(index="trade_date", columns="ts_code", values=col, aggfunc="last")
+    return wide.sort_index()
+
+
+def technical_factors(conn, start: str) -> dict:
+    """13 个主流技术指标的横截面化版本 (与图表看盘指标同源, 方向已统一调为'越大越好')。
+
+    A股横截面呈反转效应 + 低波溢价, 故动量/摆动/波动类指标统一取负:
+      macd_dif_n / macd_hist_n  MACD DIF/柱 除以价格归一
+      rsi_14                    RSI(14) 平均涨跌法
+      bias_20                   乖离率 (C/MA20-1)
+      kdj_j                     KDJ(9,3,3) 的 J
+      cci_14 / wr_14            CCI(14) / Williams %R(14)
+      boll_bw_20 / boll_pos_20  布林带(20,2) 带宽/%B 位置
+      atr_14_n                  ATR(14)/close
+      obv_slope_20              OBV 20日增量 / 20日总量
+      mfi_14                    MFI(14) 资金流比率
+      ma_ratio_5_20             MA5/MA20 均线多排
+    """
+    C = load_daily_col(conn, start, "close")
+    H = load_daily_col(conn, start, "high")
+    L = load_daily_col(conn, start, "low")
+    V = load_daily_col(conn, start, "vol")
+    ret = C.pct_change()
+
+    out = {}
+    # MACD(12,26,9)
+    ema12 = C.ewm(span=12, adjust=False).mean()
+    ema26 = C.ewm(span=26, adjust=False).mean()
+    dif = ema12 - ema26
+    dea = dif.ewm(span=9, adjust=False).mean()
+    out["macd_dif_n"] = -(dif / C)
+    out["macd_hist_n"] = -((dif - dea) / C)
+
+    # RSI(14)
+    up = ret.clip(lower=0).rolling(14, min_periods=10).mean()
+    dn = (-ret.clip(upper=0)).rolling(14, min_periods=10).mean()
+    out["rsi_14"] = -(100 * up / (up + dn))
+
+    # BIAS(20) + 布林带(20,2)
+    ma5 = C.rolling(5, min_periods=4).mean()
+    ma20 = C.rolling(20, min_periods=15).mean()
+    std20 = C.rolling(20, min_periods=15).std()
+    out["bias_20"] = -(C / ma20 - 1.0)
+    out["boll_bw_20"] = -(4 * std20 / ma20)
+    out["boll_pos_20"] = -((C - (ma20 - 2 * std20)) / (4 * std20))
+    out["ma_ratio_5_20"] = -(ma5 / ma20)
+
+    # KDJ(9,3,3)
+    llv9, hhv9 = L.rolling(9, min_periods=7).min(), H.rolling(9, min_periods=7).max()
+    rsv = 100 * (C - llv9) / (hhv9 - llv9)
+    K = rsv.ewm(alpha=1 / 3, adjust=False).mean()
+    D = K.ewm(alpha=1 / 3, adjust=False).mean()
+    out["kdj_j"] = -(3 * K - 2 * D)
+
+    # CCI(14)
+    tp = (H + L + C) / 3.0
+    tp_ma = tp.rolling(14, min_periods=10).mean()
+    md = (tp - tp_ma).abs().rolling(14, min_periods=10).mean()
+    out["cci_14"] = -((tp - tp_ma) / (0.015 * md))
+
+    # Williams %R(14): 原 WR ∈ [-100,0], -100 深度超卖; 取负后 值大=超卖=预期反弹
+    hhv14, llv14 = H.rolling(14, min_periods=10).max(), L.rolling(14, min_periods=10).min()
+    out["wr_14"] = 100 * (hhv14 - C) / (hhv14 - llv14)
+
+    # ATR(14)/close
+    prev_c = C.shift(1)
+    tr = np.maximum(H - L, np.maximum((H - prev_c).abs(), (L - prev_c).abs()))
+    out["atr_14_n"] = -(tr.rolling(14, min_periods=10).mean() / C)
+
+    # OBV 20日斜率 (按 20 日总量归一)
+    obv = (np.sign(ret) * V).fillna(0).cumsum()
+    norm = V.rolling(20, min_periods=15).mean() * 20
+    out["obv_slope_20"] = -((obv - obv.shift(20)) / norm)
+
+    # MFI(14)
+    mf = tp * V
+    pos = mf.where(ret > 0, 0.0).rolling(14, min_periods=10).sum()
+    neg = mf.where(ret < 0, 0.0).rolling(14, min_periods=10).sum()
+    out["mfi_14"] = -(100 * pos / (pos + neg))
+
+    return out
+
+
 def upsert_factor(conn, name: str, wide: pd.DataFrame, only_dates=None):
     df = wide.stack().rename("value").reset_index()
     df.columns = ["trade_date", "ts_code", "value"]
@@ -276,6 +369,11 @@ def main():
     print(f"  sue_gr: {n}")
     n = upsert_factor(conn, "sue_delta", sue_dl_w, only_dates)
     print(f"  sue_delta: {n}")
+
+    print("技术指标因子...")
+    for name, w in technical_factors(conn, start).items():
+        n = upsert_factor(conn, name, w, only_dates)
+        print(f"  {name}: {n}")
 
     cur = conn.cursor()
     cur.execute("SELECT factor_name, COUNT(*), MIN(trade_date), MAX(trade_date) "
