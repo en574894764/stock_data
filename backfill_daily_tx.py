@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import sys
 import time
 from datetime import date, datetime
@@ -30,11 +31,21 @@ REQUEST_DELAY = 0.1  # 批次间延迟
 
 
 def get_ts_codes() -> list[str]:
-    """从 daily/ 目录获取所有 A 股标的代码。"""
+    """从 daily/ 目录获取所有 A 股标的代码。
+    以 PG daily_quote 的 ts_code 集合为准 —— 排除 ETF/基金迁移文件
+    (2026-09-04 修复: 此前 daily/ 下残留的 ETF .SH/.SZ 文件被误当 A 股补数, 造成重复行污染)。"""
+    import psycopg2
+    conn = psycopg2.connect(host=os.environ.get("PGHOST", "/tmp"),
+                            dbname=os.environ.get("PGDATABASE", "investassist"),
+                            user=os.environ.get("PGUSER", "james"))
+    cur = conn.cursor()
+    cur.execute("SELECT DISTINCT ts_code FROM daily_quote")
+    legit = {r[0] for r in cur.fetchall()}
+    conn.close()
     codes = []
     for f in sorted(DAILY_DIR.glob("*.csv")):
         stem = f.stem
-        if stem.endswith((".SH", ".SZ")) and not stem.endswith(".BJ"):
+        if stem.endswith((".SH", ".SZ")) and not stem.endswith(".BJ") and stem in legit:
             codes.append(stem)
     return codes
 

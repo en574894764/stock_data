@@ -106,8 +106,11 @@ def export_per_symbol(conn):
             os.replace(tmp_path, out_path)
             f = w = None
 
-    try:
-        for sym, d, o, h, l, c, vol, amount in cur:
+    def _dump_cursor(cursor, label):
+        """流式导出一个 (sym, date, ohlcv...) 游标 → daily/<sym>.csv (全量重写, 原子 rename)."""
+        nonlocal n_files, n_rows, cur_sym, f, w, tmp_path, out_path
+        cur_sym = None
+        for sym, d, o, h, l, c, vol, amount in cursor:
             if sym != cur_sym:
                 _close_file()
                 cur_sym = sym
@@ -121,7 +124,20 @@ def export_per_symbol(conn):
             w.writerow([sym, d_str, _num(o), _num(h), _num(l), _num(c), _num(vol), _num(amount)])
             n_rows += 1
         _close_file()
-        print(f"  daily/: {n_files} 个文件, {n_rows:,} 行")
+        print(f"  daily/{label}: 累计 {n_files} 个文件, {n_rows:,} 行")
+
+    try:
+        _dump_cursor(cur, "股票+港股")
+        # ETF: etf_quote → daily/<6位裸码>.csv (2026-09-04 起纳入日常导出;
+        # 此前 ETF 文件仅迁移时生成, 停在 2026-04-30 且被 backfill_daily_tx 误污染)
+        cur.close()
+        cur = conn.cursor(name="etf_symbol_export")
+        cur.itersize = 50000
+        cur.execute("""
+            SELECT code, trade_date, open, high, low, close, vol, amount
+            FROM etf_quote ORDER BY code, trade_date
+        """)
+        _dump_cursor(cur, "ETF")
     except Exception as e:
         _fail(f"daily/ 按标的导出失败: {e}")
         if f:

@@ -386,8 +386,13 @@ def fetch_etf(conn, pro, target: date, dry_run: bool = False) -> int:
             o, h, l, c = (_clean_float(r.get(x)) for x in ("open", "high", "low", "close"))
             if not (o and o > 0 and h and h > 0 and l and l > 0 and c and c > 0):
                 continue
+            # code 统一 6 位裸码 (历史约定; 2026-06 起曾误存 9 位 ts_code 导致数据分裂, 已修复)
+            # 仅收场内基金 (.SH/.SZ), 过滤场外 .OF 等变体
+            ts_code = str(r["ts_code"])
+            if not ts_code.endswith((".SH", ".SZ")):
+                continue
             rows.append((
-                r["ts_code"], f"{d[:4]}-{d[4:6]}-{d[6:8]}", int(d[:4]),
+                ts_code.split(".")[0], f"{d[:4]}-{d[4:6]}-{d[6:8]}", int(d[:4]),
                 _clean_float(r.get("pre_close")), o, h, l, c,
                 _clean_float(r.get("change")), _clean_float(r.get("pct_chg")),
                 _clean_float(r.get("vol")), _clean_float(r.get("amount")),
