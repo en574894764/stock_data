@@ -151,13 +151,20 @@ def step_factor(cron: bool = False) -> bool:
 
 
 def step_signals(cron: bool = False) -> bool:
-    """策略信号生成 (非阻塞): 到调仓期才产出信号, 平日自动跳过; 产出时飞书推送执行建议。"""
-    log("策略信号生成 (generate_signals)...")
+    """策略链 (非阻塞): ① 到调仓期生成信号+飞书 ② 到期 pending 模拟成交→position ③ 每日复盘+飞书。"""
+    log("策略链 (generate + execute + review)...")
     r = run([PY, str(REPO / "scripts" / "generate_signals.py"), "--push"], timeout=600, cron=cron)
     ok = r.returncode == 0
     if not ok:
         log(f"信号生成失败 (exit={r.returncode}): {r.stderr[-300:]}", "WARN", cron)
-    return ok
+    r2 = run([PY, str(REPO / "scripts" / "execute_signals.py"), "--simulate"], timeout=600, cron=cron)
+    if r2.returncode != 0:
+        log(f"信号执行失败 (exit={r2.returncode}): {r2.stderr[-300:]}", "WARN", cron)
+    r3 = run([PY, str(REPO / "scripts" / "daily_review.py"), "--push",
+              "--out", str(REPO / "reports" / "daily_review.md")], timeout=900, cron=cron)
+    if r3.returncode != 0:
+        log(f"每日复盘失败 (exit={r3.returncode}): {r3.stderr[-300:]}", "WARN", cron)
+    return ok and r2.returncode == 0 and r3.returncode == 0
 
 
 def step_reconcile(cron: bool = False) -> bool:
