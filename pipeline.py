@@ -150,6 +150,16 @@ def step_factor(cron: bool = False) -> bool:
     return True
 
 
+def step_signals(cron: bool = False) -> bool:
+    """策略信号生成 (非阻塞): 到调仓期才产出信号, 平日自动跳过; 产出时飞书推送执行建议。"""
+    log("策略信号生成 (generate_signals)...")
+    r = run([PY, str(REPO / "scripts" / "generate_signals.py"), "--push"], timeout=600, cron=cron)
+    ok = r.returncode == 0
+    if not ok:
+        log(f"信号生成失败 (exit={r.returncode}): {r.stderr[-300:]}", "WARN", cron)
+    return ok
+
+
 def step_reconcile(cron: bool = False) -> bool:
     """L2 周度对账质检（周六追加）：PG↔CSV 对账 / 生命周期 / 财报合理性 / 分布漂移。"""
     log("L2 对账质检 (reconcile)...")
@@ -290,6 +300,10 @@ def main():
     if not args.skip_backup and not step_factor(args.cron):
         push_feishu_alert("**{WARN} pipeline 因子更新失败 (非阻塞)**\n"
                           "daily_basic/factor_value 更新未完成, 明日自动重试补齐。")
+
+    # ── 策略信号 (非阻塞): 依赖当日因子, 平日跳过, 调仓日产出执行建议并推送飞书 ──
+    if not args.skip_backup:
+        step_signals(args.cron)
 
     github_ok = step_backup(args.cron) if not args.skip_backup else False
     stats = collect_db_stats()
