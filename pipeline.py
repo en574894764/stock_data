@@ -160,6 +160,9 @@ def step_signals(cron: bool = False) -> bool:
     r2 = run([PY, str(REPO / "scripts" / "execute_signals.py"), "--simulate"], timeout=600, cron=cron)
     if r2.returncode != 0:
         log(f"信号执行失败 (exit={r2.returncode}): {r2.stderr[-300:]}", "WARN", cron)
+    r2b = run([PY, str(REPO / "scripts" / "build_nav.py")], timeout=600, cron=cron)
+    if r2b.returncode != 0:
+        log(f"净值重建失败 (exit={r2b.returncode}): {r2b.stderr[-300:]}", "WARN", cron)
     r3 = run([PY, str(REPO / "scripts" / "daily_review.py"), "--push",
               "--out", str(REPO / "reports" / "daily_review.md")], timeout=900, cron=cron)
     if r3.returncode != 0:

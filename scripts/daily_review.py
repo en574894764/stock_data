@@ -126,9 +126,39 @@ def signal_summary(conn, strategy_id):
     return by_status, last
 
 
+def nav_summary(conn, strategy_id):
+    """portfolio_nav since inception 绩效 (需先跑 build_nav)."""
+    cur = conn.cursor()
+    cur.execute("SELECT trade_date, nav, daily_ret, benchmark_ret FROM portfolio_nav "
+                "WHERE strategy_id=%s ORDER BY trade_date", (strategy_id,))
+    rows = cur.fetchall()
+    cur.close()
+    if len(rows) < 2:
+        return None
+    rets = pd.Series([float(r[2]) for r in rows])
+    bench = pd.Series([float(r[3]) if r[3] is not None else np.nan for r in rows])
+    nav = float(rows[-1][1])
+    years = len(rows) / 244
+    ann = nav ** (1 / years) - 1 if years > 0 else np.nan
+    vol = rets.std() * np.sqrt(244)
+    navs = pd.Series([float(r[1]) for r in rows])
+    dd = float((navs / navs.cummax() - 1).min())
+    b_cum = float((1 + bench.fillna(0)).prod() - 1)
+    return {"days": len(rows), "since": rows[0][0], "nav": nav, "ann": ann,
+            "sharpe": ann / vol if vol > 0 else np.nan, "dd": dd,
+            "total": nav - 1, "bench_cum": b_cum, "excess_cum": nav - 1 - b_cum}
+
+
 # ---------------------------------------------------------------- 报告
-def render(pos, rets, bench, ics, factor_date, by_status, last_signal, strategy_name) -> str:
+def render(pos, rets, bench, ics, factor_date, by_status, last_signal, strategy_name,
+           nsum=None) -> str:
     L = [f"### 📈 每日复盘 · {strategy_name}\n"]
+
+    # 0. since inception (portfolio_nav)
+    if nsum:
+        L.append(f"**运行绩效** (自 {nsum['since']}, {nsum['days']} 交易日): "
+                 f"累计 {nsum['total']:+.1%} | 年化 {nsum['ann']:+.1%} | 夏普 {nsum['sharpe']:.2f} | "
+                 f"回撤 {nsum['dd']:.1%} | 超额(vs 300) {nsum['excess_cum']:+.1%}\n")
 
     # 1. 当日
     if rets is not None and len(rets) and pos is not None:
@@ -198,7 +228,11 @@ def main():
         bench = load_benchmark(conn)
         ics, fdate = lookback_ic(conn, list(cfg["factors"].keys()))
         by_status, last_sig = signal_summary(conn, args.strategy)
-        text = render(pos, rets, bench, ics, fdate, by_status, last_sig, name)
+        nsum = nav_summary(conn, args.strategy)
+        if nsum:
+            text = render(pos, rets, bench, ics, fdate, by_status, last_sig, name, nsum)
+        else:
+            text = render(pos, rets, bench, ics, fdate, by_status, last_sig, name)
         print(text)
 
         if args.out:
