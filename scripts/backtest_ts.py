@@ -128,6 +128,9 @@ def run_ts(symbol: str, strategy: str, start: str, end: str,
         raise SystemExit(f"未知策略: {strategy} (可选: {', '.join(STRATEGIES)})")
     sig_fn, defaults = STRATEGIES[strategy]
     p = {**defaults, **(params or {})}
+    for k in ("fast", "slow", "signal", "window"):  # bar 数参数转 int
+        if k in p:
+            p[k] = int(p[k])
 
     conn = get_conn()
     price = load_price(conn, symbol, start, end)
@@ -140,24 +143,21 @@ def run_ts(symbol: str, strategy: str, start: str, end: str,
 
     pf = vbt.Portfolio.from_signals(
         close=price, entries=entries, exits=exits,
-        init_cash=init_cash, fees=fees, freq="1D", year_freq=YEAR_BARS,
+        init_cash=init_cash, fees=fees, freq="1D",
     )
+    # NOTE: 绩效统一用自研 calc_stats (244 bar 年化, 与 factor_eval 口径一致);
+    # vbt 1.x 的 year_freq 语义是时间长度而非 bar 数, 弃用其年化指标
 
     daily_returns = pf.returns()
     if not isinstance(daily_returns, pd.Series):
         daily_returns = daily_returns.iloc[:, 0]
 
-    # 持仓快照: 每 bar 的仓位权重
-    pos_value = pf.positions.value
-    if isinstance(pos_value, pd.DataFrame):
-        pos_value = pos_value.iloc[:, 0]
+    # 持仓快照: 每 bar 仓位权重 = 持仓市值 / 组合净值 (asset_value 直接返回 Series)
+    asset_value = pf.asset_value()
     equity = pf.value()
-    if isinstance(equity, pd.DataFrame):
-        equity = equity.iloc[:, 0]
-    in_pos = pf.positions.count()  # 每 bar 持仓张数
-    if isinstance(in_pos, pd.DataFrame):
-        in_pos = in_pos.iloc[:, 0]
-    weight = pd.Series(np.where(in_pos.to_numpy() > 0, 1.0, 0.0), index=price.index)
+    in_pos = asset_value > 0
+    weight = (asset_value / equity).fillna(0.0)
+    weight = pd.Series(np.where(in_pos.to_numpy(), weight.to_numpy(), 0.0), index=price.index)
     holdings = pd.DataFrame({
         "date": price.index,
         "symbol": symbol,
@@ -167,10 +167,11 @@ def run_ts(symbol: str, strategy: str, start: str, end: str,
     })
 
     stats = calc_stats(daily_returns)
+    n_tr = int(pf.trades.count())
     stats.update({
-        "trades": int(pf.trades.count()),
-        "win_rate": float(pf.trades.win_rate()) if pf.trades.count() else np.nan,
-        "profit_factor": float(pf.trades.profit_factor()) if pf.trades.count() else np.nan,
+        "trades": n_tr,
+        "win_rate": float(pf.trades.win_rate()) if n_tr else np.nan,
+        "profit_factor": float(pf.trades.profit_factor()) if n_tr else np.nan,
     })
     return {"daily_returns": daily_returns, "holdings": holdings, "stats": stats, "pf": pf}
 
