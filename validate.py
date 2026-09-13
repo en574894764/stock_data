@@ -277,6 +277,7 @@ def check_daily_per_stock(db: PostgresDB, expected_start: int, quick: bool = Fal
         delisted_ok = 0
         delisted_stale = []
         last_dates: list[date] = []  # 供新鲜度分布复用（B-7）
+        last_by_code: dict[str, date] = {}  # 供各数据域新鲜度总览复用（B-7b）
 
         # 超过 cutoff 未更新 → 视为陈旧；港股交易日历与 A 股不同，放宽 2 个交易日
         cutoff_stale = TODAY - timedelta(days=stale_days)
@@ -304,6 +305,7 @@ def check_daily_per_stock(db: PostgresDB, expected_start: int, quick: bool = Fal
 
             last_date = date.fromisoformat(last_d)
             last_dates.append(last_date)
+            last_by_code[ts] = last_date
 
             if delist_d and delist_d != "None":
                 # 已退市
@@ -386,6 +388,8 @@ def check_daily_per_stock(db: PostgresDB, expected_start: int, quick: bool = Fal
         _daily_stats["total"] = total
         _daily_stats["ok"] = ok_active
         _daily_stats["last_dates"] = last_dates
+        _daily_stats["last_by_code"] = last_by_code
+        _daily_stats["full_universe"] = (symbol is None)
 
     except Exception as e:
         issue("ERR", "daily", "逐标检查失败", str(e))
@@ -499,13 +503,19 @@ def _macro_latest_date(path: Path):
     return None
 
 
+LAST_TD_SQL = """
+    SELECT MAX(cal_date) FROM trade_cal
+    WHERE is_open::int = 1 AND cal_date <= CURRENT_DATE
+      AND (cal_date < CURRENT_DATE OR LOCALTIME >= TIME '18:00')
+"""
+
+
 def check_freshness_overview(db: PostgresDB):
     """各数据域新鲜度总览：MAX(date) vs 最近 A 股交易日，直接给出落后 N 交易日"""
     print("\n── 数据域新鲜度总览 ──")
 
     try:
-        last_td = db.query_scalar(
-            "SELECT MAX(cal_date) FROM trade_cal WHERE is_open::int = 1 AND cal_date <= CURRENT_DATE")
+        last_td = db.query_scalar(LAST_TD_SQL)
         if not last_td:
             issue("ERR", "overview", "基准交易日", "trade_cal 无数据，无法计算基准")
             return
@@ -536,13 +546,30 @@ def check_freshness_overview(db: PostgresDB):
 
         a_idx_in = ",".join(f"'{s}'" for s in A_SHARE_INDEX_SYMBOLS)
         date_domains = [
-            ("A股日线", f"SELECT MAX(trade_date) m, COUNT(DISTINCT ts_code) n FROM daily_quote WHERE ts_code NOT LIKE '%.HK'", 0),
-            ("港股日线", f"SELECT MAX(trade_date) m, COUNT(DISTINCT ts_code) n FROM daily_quote WHERE ts_code LIKE '%.HK'", 2),
             ("ETF日线", "SELECT MAX(trade_date) m, COUNT(DISTINCT code) n FROM etf_quote", 0),
             ("A股指数", f"SELECT MAX(trade_date) m, COUNT(DISTINCT symbol) n FROM index_daily WHERE symbol IN ({a_idx_in})", 0),
             # 海外/港股指数数据要到北京时间次日才有，天然滞后 1 个交易日
             ("海外/港股指数", f"SELECT MAX(trade_date) m, COUNT(DISTINCT symbol) n FROM index_daily WHERE symbol NOT IN ({a_idx_in})", 1),
         ]
+
+        # B-7b 优化（2026-09-14）：A股/港股日线的 MAX + COUNT(DISTINCT) 是两次 2340 万行全表扫描
+        # （实测 85s，占了 validate 总耗时的 60%+）。逐标检查已算出每个标的的 last_date，
+        # 直接复用 → 免掉全表扫。若逐标检查未跑（如 --symbol 单标的），回退到 SQL。
+        last_by_code = _daily_stats.get("last_by_code") if _daily_stats.get("full_universe") else None
+        if last_by_code:
+            for name, pred, tol in (("A股日线", lambda k: not k.endswith(".HK"), 0),
+                                    ("港股日线", lambda k: k.endswith(".HK"), 2)):
+                sub = {k: v for k, v in last_by_code.items() if pred(k)}
+                if sub:
+                    report_date_domain(name, max(sub.values()), len(sub), extra_tol=tol)
+                else:
+                    issue("ERR", "overview", name, "无数据")
+        else:
+            date_domains.insert(0, ("A股日线", "SELECT MAX(trade_date) m, COUNT(DISTINCT ts_code) n "
+                                              "FROM daily_quote WHERE ts_code NOT LIKE '%.HK'", 0))
+            date_domains.insert(1, ("港股日线", "SELECT MAX(trade_date) m, COUNT(DISTINCT ts_code) n "
+                                              "FROM daily_quote WHERE ts_code LIKE '%.HK'", 2))
+
         for name, sql, extra_tol in date_domains:
             try:
                 r = db.query(sql)[0]
@@ -680,24 +707,40 @@ def check_price_consistency(db: PostgresDB):
     print("\n── 价格一致性质检 (L1) ──")
 
     try:
-        # 1) pct_chg 自洽性: (close-pre_close)/pre_close 与存储 pct_chg 偏差
-        #    A股/ETF/指数 (tushare 源) 2015+ 零容忍 0.5pct（早年含复权口径差异降为统计）;
+        # 1) pct_chg 自洽性 + 3) 量价矛盾 + 3b) pre_close 缺失
+        #    B-9 优化（2026-09-14）：三项原为三次 2340 万行全表扫描，合并为一次
+        #    A股/ETF (tushare 源) 2015+ 零容忍 0.5pct（早年含复权口径差异降为统计）;
         #    港股 (akshare 2位小数报价) 放宽 1.5pct
         row = db.query_one("""
             SELECT
                 SUM(CASE WHEN ts_code NOT LIKE '%.HK' AND trade_year >= 2015
+                          AND pre_close > 0 AND pct_chg IS NOT NULL
                           AND ABS((close-pre_close)/pre_close*100 - pct_chg) > 0.5
-                         THEN 1 ELSE 0 END),
+                         THEN 1 ELSE 0 END) AS a_bad,
                 SUM(CASE WHEN ts_code NOT LIKE '%.HK' AND trade_year < 2015
+                          AND pre_close > 0 AND pct_chg IS NOT NULL
                           AND ABS((close-pre_close)/pre_close*100 - pct_chg) > 0.5
-                         THEN 1 ELSE 0 END),
+                         THEN 1 ELSE 0 END) AS a_bad_old,
                 SUM(CASE WHEN ts_code LIKE '%.HK'
+                          AND pre_close > 0 AND pct_chg IS NOT NULL
                           AND ABS((close-pre_close)/pre_close*100 - pct_chg) > 1.5
-                         THEN 1 ELSE 0 END)
+                         THEN 1 ELSE 0 END) AS hk_bad,
+                SUM(CASE WHEN COALESCE(vol,0) = 0 AND ts_code NOT LIKE '%.HK'
+                          AND pre_close > 0 AND close <> pre_close
+                         THEN 1 ELSE 0 END) AS vp_price,
+                SUM(CASE WHEN COALESCE(vol,0) = 0 AND COALESCE(amount,0) > 0
+                         THEN 1 ELSE 0 END) AS vp_amount,
+                SUM(CASE WHEN COALESCE(vol,0) > 0 AND ts_code NOT LIKE '%.HK'
+                          AND (amount IS NULL OR amount = 0)
+                         THEN 1 ELSE 0 END) AS vp_missing,
+                SUM(CASE WHEN ts_code LIKE '%.HK' AND COALESCE(pre_close,0) = 0
+                         THEN 1 ELSE 0 END) AS hk_nopc,
+                SUM(CASE WHEN ts_code NOT LIKE '%.HK' AND COALESCE(pre_close,0) = 0
+                         THEN 1 ELSE 0 END) AS a_nopc
             FROM daily_quote
-            WHERE pre_close > 0 AND pct_chg IS NOT NULL
         """)
-        a_bad, a_bad_old, hk_bad = (int(v) if v is not None else 0 for v in row)
+        a_bad, a_bad_old, hk_bad, vp_price, vp_amount, vp_missing, hk_nopc, a_nopc = (
+            int(v) if v is not None else 0 for v in row)
         if a_bad:
             issue("ERR", "consistency", "pct_chg 与价格不自洽 (A股/ETF 2015+)",
                   f"{a_bad:,} 行 — 偏差>0.5pct，疑似源数据错误")
@@ -712,6 +755,20 @@ def check_price_consistency(db: PostgresDB):
                   f"收益率计算请直接用 pct_chg 列")
         else:
             issue("OK", "consistency", "pct_chg 与价格自洽 (港股)")
+
+        if vp_price:
+            issue("ERR", "consistency", "零成交量但价格变动", f"{vp_price:,} 行")
+        else:
+            issue("OK", "consistency", "无零成交量价格变动")
+        if vp_amount:
+            issue("WARN", "consistency", "零成交量但有成交额", f"{vp_amount:,} 行")
+        if vp_missing:
+            issue("WARN", "consistency", "有成交量但无成交额 (A股)", f"{vp_missing:,} 行")
+
+        if hk_nopc or a_nopc:
+            issue("WARN", "consistency", "pre_close 缺失/为0",
+                  f"港股 {hk_nopc:,} 行 / A股 {a_nopc:,} 行（历史源数据特性，"
+                  f"影响 pre_close 依赖型计算，pct_chg 列不受影响）")
 
         # 2) pre_close 连续性: 当日 pre_close vs 前日 close（LAG 窗口）
         #    偏差>2% 计 mismatch。A股 mismatch 多为除权（交易所前收盘口径，合理）；
@@ -743,45 +800,7 @@ def check_price_consistency(db: PostgresDB):
             issue("WARN", "consistency", "港股 pre_close 与前日收盘不衔接",
                   f"{hk_mismatch:,} 行（除权 + akshare 拼接口径混合，除权日外需人工抽查）")
 
-        # 3) 量价矛盾 (仅 A股/ETF — tushare 源停牌日应 vol=0 且 close=pre_close;
-        #    港股 akshare 源 vol=0 日仍有报价更新属源特性，豁免)
-        #    vol=0 但有成交额; (非港股) vol>0 但 amount 缺失
-        row = db.query_one("""
-            SELECT
-                SUM(CASE WHEN COALESCE(vol,0) = 0 AND ts_code NOT LIKE '%.HK'
-                          AND pre_close > 0 AND close <> pre_close
-                         THEN 1 ELSE 0 END),
-                SUM(CASE WHEN COALESCE(vol,0) = 0 AND COALESCE(amount,0) > 0
-                         THEN 1 ELSE 0 END),
-                SUM(CASE WHEN COALESCE(vol,0) > 0 AND ts_code NOT LIKE '%.HK'
-                          AND (amount IS NULL OR amount = 0)
-                         THEN 1 ELSE 0 END)
-            FROM daily_quote
-        """)
-        vp_price, vp_amount, vp_missing = (int(v) if v is not None else 0 for v in row)
-        if vp_price:
-            issue("ERR", "consistency", "零成交量但价格变动", f"{vp_price:,} 行")
-        else:
-            issue("OK", "consistency", "无零成交量价格变动")
-        if vp_amount:
-            issue("WARN", "consistency", "零成交量但有成交额", f"{vp_amount:,} 行")
-        if vp_missing:
-            issue("WARN", "consistency", "有成交量但无成交额 (A股)", f"{vp_missing:,} 行")
-
-        # 3b) pre_close 缺失统计（历史数据源特性，标记不算错误）
-        row = db.query_one("""
-            SELECT
-                SUM(CASE WHEN ts_code LIKE '%.HK' AND COALESCE(pre_close,0) = 0
-                         THEN 1 ELSE 0 END),
-                SUM(CASE WHEN ts_code NOT LIKE '%.HK' AND COALESCE(pre_close,0) = 0
-                         THEN 1 ELSE 0 END)
-            FROM daily_quote
-        """)
-        hk_nopc, a_nopc = (int(v) if v is not None else 0 for v in row)
-        if hk_nopc or a_nopc:
-            issue("WARN", "consistency", "pre_close 缺失/为0",
-                  f"港股 {hk_nopc:,} 行 / A股 {a_nopc:,} 行（历史源数据特性，"
-                  f"影响 pre_close 依赖型计算，pct_chg 列不受影响）")
+        # 3) 量价矛盾 / 3b) pre_close 缺失 — 已合并进上方单次全表扫描（B-9）
 
         # 4) ETF / 指数表 pct_chg 自洽
         for tbl in ("etf_quote", "index_daily"):
@@ -1088,11 +1107,11 @@ def check_csv_sync(db: PostgresDB, n: int = 25):
         return
     try:
         delisted = [r["ts_code"] for r in db.query(
-            "SELECT ts_code FROM stocks WHERE delist_date IS NOT NULL AND ts_code NOT LIKE '%.HK' "
+            "SELECT ts_code FROM stocks WHERE delist_date IS NOT NULL AND ts_code NOT LIKE '%%.HK' "
             "ORDER BY random() LIMIT %s", (n,))]
         active = [r["ts_code"] for r in db.query(
             "SELECT ts_code FROM daily_quote WHERE trade_date = CURRENT_DATE - INTERVAL '30 days' "
-            "AND ts_code NOT LIKE '%.HK' ORDER BY random() LIMIT %s", (n,))]
+            "AND ts_code NOT LIKE '%%.HK' ORDER BY random() LIMIT %s", (n,))]
 
         lag, ahead, nofile, checked = [], [], 0, 0
         for ts in delisted:
@@ -1155,29 +1174,40 @@ def check_etf_index_continuity(db: PostgresDB, stale_days: int = 7):
     """A-4: ETF / 指数逐标连续性（原来只有全表 MAX，单只断更发现不了）。"""
     print("\n── ETF / 指数逐标连续性 ──")
     try:
-        last_td = db.query_scalar(
-            "SELECT MAX(cal_date) FROM trade_cal WHERE is_open::int = 1 AND cal_date <= CURRENT_DATE")
+        last_td = db.query_scalar(LAST_TD_SQL)
         if not last_td:
             issue("WARN", "etf-index", "基准交易日", "trade_cal 无数据")
             return
-        for tbl, key, label, tol_days in (("etf_quote", "code", "ETF", stale_days),
-                                          ("index_daily", "symbol", "指数", 3)):
+
+        def lag_td(d):
+            """落后基准的交易日数（避免日历天在周末/长假产生误报）"""
+            return db.query_scalar(
+                "SELECT COUNT(*) FROM trade_cal WHERE is_open::int = 1 AND cal_date > %s AND cal_date <= %s",
+                (d, last_td))
+
+        # 容忍度按交易日：ETF 2 日（流动性差的可能停牌）、指数 1 日（港股/海外指数次日才有）
+        for tbl, key, label, tol_td in (("etf_quote", "code", "ETF", 2),
+                                        ("index_daily", "symbol", "指数", 1)):
             rows = db.query(f"""
                 WITH t AS (SELECT {key} AS k, MIN(trade_date) f, MAX(trade_date) l, COUNT(*) n
                            FROM {tbl} GROUP BY {key})
-                SELECT k, f::text, l::text, n FROM t ORDER BY l
+                SELECT k, f, l, n FROM t ORDER BY l
             """)
-            stale = [r for r in rows if (last_td - r["l"]).days > tol_days]
-            active = [r for r in rows if (last_td - r["l"]).days <= tol_days]
+            stale, active = [], []
+            for r in rows:
+                lag = lag_td(r["l"])
+                (stale if (lag or 0) > tol_td else active).append((r, lag))
             if stale:
-                names = ", ".join(f"{r['k']}({r['l']})" for r in stale[:6])
-                issue("WARN", "etf-index", f"{label} 数据滞后 >{tol_days} 天",
+                names = ", ".join(f"{r['k']}({r['l']},落后{lag}日)" for r, lag in stale[:6])
+                issue("WARN", "etf-index", f"{label} 数据滞后 >{tol_td} 交易日",
                       f"{len(stale)}/{len(rows)} 只: {names}")
             else:
-                issue("OK", "etf-index", f"{label} 逐标新鲜", f"{len(active)} 只全部在 {tol_days} 天内")
-            for r in stale:
+                issue("OK", "etf-index", f"{label} 逐标新鲜",
+                      f"{len(active)} 只全部在 {tol_td} 个交易日内")
+            for r, lag in stale:
                 missing_data.setdefault("etf_index_stale", []).append({
-                    "table": tbl, "key": r["k"], "last_date": r["l"], "rows": r["n"],
+                    "table": tbl, "key": r["k"], "last_date": str(r["l"]),
+                    "rows": r["n"], "lag_trading_days": lag,
                 })
     except Exception as e:
         issue("ERR", "etf-index", "查询失败", str(e))
@@ -1281,9 +1311,10 @@ if __name__ == "__main__":
                 sys.exit(1)
         else:
             check_table_ranges(db, args.expected_start, stale_days=args.stale_days)
-            check_freshness_overview(db)
+            # B-7b: 逐标检查先跑（4s），其产出的每标 last_date 供新鲜度总览与分布复用
             check_daily_per_stock(db, args.expected_start, quick=args.quick,
                                   symbol=args.symbol, stale_days=args.stale_days)
+            check_freshness_overview(db)
             if not args.skip_ohlc:
                 check_ohlc_quality(db)
                 check_price_consistency(db)
