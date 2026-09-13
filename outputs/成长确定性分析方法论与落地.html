@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>成长确定性分析方法论与落地</title>
+<style>
+:root{--bg:#f7f7f5;--card:#ffffff;--ink:#1f1f1f;--sub:#6b6b6b;--line:#e6e4de;--red:#b0342c;--green:#1a7a4a;--accent:#b0342c;--soft:#f4efe9;}
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--ink);line-height:1.75;font-size:15px;}
+.wrap{max-width:960px;margin:0 auto;padding:32px 20px 80px}
+h1{font-size:26px;font-weight:700;margin:0 0 6px}
+h2{font-size:20px;font-weight:700;margin:40px 0 14px;padding-left:12px;border-left:4px solid var(--accent)}
+h3{font-size:16px;font-weight:700;margin:24px 0 8px}
+p{margin:10px 0;color:#333}
+.sub{color:var(--sub);font-size:13px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px 22px;margin:14px 0}
+.grid{display:grid;gap:12px}
+.g2{grid-template-columns:1fr 1fr}
+.g4{grid-template-columns:repeat(4,1fr)}
+.metric{background:var(--soft);border-radius:10px;padding:14px 16px}
+.metric .lbl{font-size:12px;color:var(--sub)}
+.metric .val{font-size:22px;font-weight:700;margin-top:2px}
+.metric .val small{font-size:12px;font-weight:400;color:var(--sub)}
+table{width:100%;border-collapse:collapse;font-size:13px;margin:10px 0}
+th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left}
+th{background:var(--soft);font-weight:600;color:#444}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+tr:hover td{background:#faf8f4}
+.tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600}
+.tag.r{background:#fbe9e7;color:var(--red)}
+.tag.g{background:#e6f4ec;color:var(--green)}
+.tag.b{background:#e9eef5;color:#2a5b8a}
+ul{margin:8px 0;padding-left:22px}
+li{margin:5px 0}
+.callout{border-left:4px solid var(--accent);background:#fdf6f3;padding:12px 16px;border-radius:0 8px 8px 0;margin:16px 0}
+.callout.g{border-left-color:var(--green);background:#f2faf5}
+.note{font-size:12px;color:var(--sub);margin-top:6px}
+.chart{width:100%;height:300px;margin:10px 0}
+.small{font-size:13px;color:var(--sub)}
+b.hl{color:var(--red)}
+b.hlg{color:var(--green)}
+@media(max-width:720px){.g2,.g4{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>成长确定性：机构怎么做、学术怎么说、我们能怎么落地</h1>
+<p class="sub">调研范围：晨星 / 摩根士丹利(Mauboussin) / 达摩达兰 / 麦肯锡 / 学术实证（Fama-French、Chan 2002 等）/ 广发·创金合信·买方框架 · 本地 PG 数据实证</p>
+
+<div class="callout">
+<b>一句话结论：</b>机构把“成长确定性”拆成<b>五件事</b>（需求可见性、竞争壁垒、资本再投资经济学、盈利质量、管理执行），用<b>三层工具</b>落地（护城河评级定持续期、ROIIC 定价值创造、不确定性评级定安全边际）。但学术界的冷水是——<b>盈利增长持续性在统计上约等于随机</b>（Chan 2002、Fama-French 40%/年均值回归、印度市场 2.5% 五年连增）。所以这套东西的正确定位<b>不是“预测谁是十倍股”</b>，而是<b>“提高组合胜率 + 用证伪监控捕捉增长衰减”</b>。我们用本地数据验证：确定性评分对“正收益概率”有清晰单调性，但对十倍股的分布几乎无区分——两者必须分开用。
+</div>
+
+<h2>一、谁在研究成长确定性</h2>
+<div class="card">
+<table>
+<tr><th style="width:22%">流派</th><th style="width:26%">代表</th><th>核心命题 / 工具</th></tr>
+<tr><td><b>基本面价值派</b><br><span class="small">（海外买方）</span></td><td>晨星(Morningstar)</td><td>护城河评级（Wide/Narrow/None）+ 不确定性评级（Low~Extreme）→ 定安全边际宽度与 DCF 第二段长度</td></tr>
+<tr><td><b>价值创造数学派</b></td><td>Mauboussin（摩根士丹利）</td><td>ROIIC（增量投入资本回报）× 再投资率 × 竞争优势持续期 = 价值创造；<b>增长不天然创造价值</b></td></tr>
+<tr><td><b>叙事+数字派</b></td><td>达摩达兰(Damodaran)</td><td>故事（narrative）驱动、数字校验，reverse-DCF / PVGO 拆市场隐含预期</td></tr>
+<tr><td><b>增长归因派</b></td><td>麦肯锡(McKinsey)</td><td>增长颗粒度：行业增长 vs 市占 vs 并购；企业价值创造的 4 个增长引擎</td></tr>
+<tr><td><b>学术实证派</b></td><td>Fama-French、Chan(2002)、Verdad</td><td>盈利均值回归（~40%/年）、增长持续性≈随机、市场系统性高估持续性</td></tr>
+<tr><td><b>A股景气度派</b></td><td>广发策略、创金合信</td><td>渗透率 S 曲线（5→30% 黄金期）、三大映射信号、合同负债/订单、市值集中度越界</td></tr>
+</table>
+</div>
+
+<h2>二、核心框架：成长确定性 = 五件事</h2>
+<div class="card">
+<div class="grid g2">
+<div class="metric"><div class="lbl">① 需求可见性（β 层）</div><div class="val" style="font-size:15px">渗透率 S 曲线 · 合同负债 · 订单能见度</div>
+<div class="small">判断“水还在不在涨”。广发：渗透率 10-40% 是量利齐升最确定段，破 50% 增速放缓→戴维斯双杀风险。</div></div>
+<div class="metric"><div class="lbl">② 竞争壁垒（护城河）</div><div class="val" style="font-size:15px">无形资产 · 转换成本 · 网络效应 · 成本优势</div>
+<div class="small">晨星五来源；决定超额回报（ROIC&gt;WACC）能维持多久，即 DCF 的第二段长度。</div></div>
+<div class="metric"><div class="lbl">③ 资本再投资经济学</div><div class="val" style="font-size:15px">ROIIC × 再投资率 × 持续期</div>
+<div class="small">Mauboussin 核心：ROIIC&lt;WACC 时增长越快越毁价值；ROIIC 高且能持续再投资才是复利机器。</div></div>
+<div class="metric"><div class="lbl">④ 盈利质量</div><div class="val" style="font-size:15px">OCF/净利 · 应收-营收差 · 存货结构</div>
+<div class="small">Sloan 应计异象：应计越高（现金含量越低）未来收益越差；增长“含金量”验证。</div></div>
+<div class="metric"><div class="lbl">⑤ 管理执行</div><div class="val" style="font-size:15px">资本配置 · 验证措辞链 · 兑现记录</div>
+<div class="small">钱往哪投、说到做到；“送样→验证→小批量→批量→多客户”措辞是否前移。</div></div>
+</div>
+</div>
+
+<div class="callout g">
+<b>最有含金量的一条公式（Mauboussin《The Math of Value and Growth》）：</b><br>
+价值创造 = <b>(ROIIC − WACC) × 可再投资资本规模 × 竞争优势持续期</b><br>
+它把“成长确定性”从玄学变成三个可检验变量：<b>每一块新增资本赚多少（ROIIC）、还能投多少（再投资率）、这种优势能撑多久（持续期/护城河）</b>。绝大多数“高增长”公司的问题不是不增长，而是 ROIIC&lt;WACC——用 1 块钱换回 0.8 元现值。
+</div>
+
+<h2>三、学术界的冷水：增长持续性 ≈ 随机</h2>
+<div class="card">
+<div class="grid g4">
+<div class="metric"><div class="lbl">Fama-French 盈利回归</div><div class="val">40%<small>/年</small></div><div class="small">超额盈利以约 40%/年的速度向均值回归</div></div>
+<div class="metric"><div class="lbl">S&amp;P500 连续 20% 增长</div><div class="val">3%<small>十年</small></div><div class="small">仅 3% 公司能连续十年维持 20%+ 增速（Bernstein）</div></div>
+<div class="metric"><div class="lbl">Chan 2002 结论</div><div class="val">≈随机</div><div class="small">长期增长持续性不高于概率基线，预测力微弱</div></div>
+<div class="metric"><div class="lbl">印度 30 年样本</div><div class="val">2.5%</div><div class="small">连续五年超中位利润增长的公司仅 2.5%</div></div>
+</div>
+<p style="margin-top:14px">关键推论：营收增速有一定持续性，但越往利润表下走（毛利→净利→现金流），持续性越弱直至消失。市场/卖方分析师<b>系统性高估持续期</b>，这正是成长股长期跑输价值股的学术解释之一。</p>
+<p class="note">这和我们此前的本地实证完全一致：静态财务规则识别十倍股的天花板约 2%，十倍股的核心变量是产业趋势拐点而非起点财务质量。</p>
+</div>
+
+<h2>四、本地实证：确定性指标到底有没有用</h2>
+<p>2016-09-12 时点，用 2013-2015 年报构造 5 个确定性指标（无前视），对 2702 只 A 股按复合分五分位，看前向 10 年表现 + 20 只十倍股的分布。</p>
+
+<div class="card">
+<h3>4.1 确定性五分位 → 前向 10 年</h3>
+<table>
+<tr><th>确定性分档</th><th class="num">样本数</th><th class="num">10年中位收益</th><th class="num">正收益概率</th><th class="num">翻倍(≥2x)概率</th><th class="num">含十倍股</th></tr>
+<tr><td>Q1（确定性最低）</td><td class="num">541</td><td class="num" style="color:var(--green)">-24.0%</td><td class="num">34.4%</td><td class="num">6.5%</td><td class="num">1</td></tr>
+<tr><td>Q2</td><td class="num">540</td><td class="num" style="color:var(--green)">-22.1%</td><td class="num">37.4%</td><td class="num">8.0%</td><td class="num">7</td></tr>
+<tr><td>Q3</td><td class="num">540</td><td class="num" style="color:var(--green)">-20.2%</td><td class="num">36.1%</td><td class="num">6.9%</td><td class="num">4</td></tr>
+<tr><td>Q4</td><td class="num">540</td><td class="num" style="color:var(--green)">-11.4%</td><td class="num">44.1%</td><td class="num">6.3%</td><td class="num">6</td></tr>
+<tr><td>Q5（确定性最高）</td><td class="num">541</td><td class="num" style="color:var(--green)">-4.9%</td><td class="num"><b>46.8%</b></td><td class="num">7.2%</td><td class="num">2</td></tr>
+</table>
+<div id="c1" class="chart"></div>
+<p><b>两个发现：</b></p>
+<ul>
+<li><b class="hlg">确定性评分有效，但只在“胜率”维度：</b>正收益概率从 Q1 的 34.4% 单调抬升到 Q5 的 46.8%，中位亏损从 -24% 缩到 -4.9%。它是<b>风险门限层</b>——把“大概率会死的票”过滤掉。</li>
+<li><b class="hl">它对“找十倍股”几乎无用：</b>20 只十倍股在五档里是 1/7/4/6/2，甚至 Q2 最多。中际旭创确定性分位仅 0.42（Q2）、起点 ROE 1.8%、毛利率三年下滑 13.4pp，却涨了 107 倍。确定性指标抓不住产业拐点型的爆发。</li>
+</ul>
+</div>
+
+<div class="card">
+<h3>4.2 单指标区分度（Q5−Q1 中位收益差）</h3>
+<table>
+<tr><th>指标</th><th class="num">Q1</th><th class="num">Q5</th><th class="num">Q5−Q1</th><th>判定</th></tr>
+<tr><td>盈利含金量 OCF/净利</td><td class="num">-9%</td><td class="num">-33%</td><td class="num">-25pp</td><td><span class="tag b">方向相反，单用无效</span></td></tr>
+<tr><td>ROE 均值</td><td class="num">-14%</td><td class="num">-18%</td><td class="num">-4pp</td><td><span class="tag b">无区分</span></td></tr>
+<tr><td>ROE 稳定性</td><td class="num">-13%</td><td class="num">-20%</td><td class="num">-7pp</td><td><span class="tag b">无区分</span></td></tr>
+<tr><td>毛利率三年趋势</td><td class="num">-28%</td><td class="num">-19%</td><td class="num">+8pp</td><td><span class="tag g">弱正向</span></td></tr>
+<tr><td>应收-营收增速差</td><td class="num">-18%</td><td class="num">-28%</td><td class="num">-10pp</td><td><span class="tag b">方向相反</span></td></tr>
+</table>
+<p class="note">结论：任何单一确定性指标在 A 股 10 年期都没有稳定区分度；只有<b>复合打分后</b>才在“胜率/踩雷率”维度显出单调性。这与我们“质量是门限不是排序器”的既有结论同源。</p>
+</div>
+
+<div id="c2" class="chart"></div>
+
+<h2>五、如何利用好分析结果（三层用法）</h2>
+<div class="card">
+<h3>用法 1：分层使用，别拿它当排序器</h3>
+<ul>
+<li><b>确定性评分 → 仓位上限与风控门限，</b>不是选股排序。高确定性给高仓位上限、低确定性只允许小仓试探（或直接剔除），爆发力交给产业趋势层和断层确认层去捕捉。</li>
+<li>对应晨星逻辑：<b>不确定性评级决定安全边际宽度</b>——越不确定，要求的价格折价越大、仓位越小。</li>
+</ul>
+<h3>用法 2：贝叶斯基准率 + 预期差</h3>
+<ul>
+<li><b>先查基准率</b>：同行业、同规模、当前增速档，历史上能连续 5 年维持的概率是多少（大概率 &lt;10%）。</li>
+<li><b>再用公司特有信号上调/下调</b>：合同负债拐点、订单能见度、验证措辞前移、ROIIC&gt;WACC——这些是“本案例为何不同于基准率”的证据。</li>
+<li><b>预期差</b>：用 reverse-DCF / PVGO 把当前股价拆成“已有业务价值 + 增长机会现值”，判断市场已经隐含了多少增长，你的判断是否显著高于它。Mauboussin 的终问：“你凭什么认为市场算错了？”</li>
+</ul>
+<h3>用法 3：把“持续期”当显式变量</h3>
+<ul>
+<li>DCF 的价值大头在第二段（ROIIC 衰减期）。明确写下你对“竞争优势持续期”的判断（3 年 / 10 年 / 20 年），它直接决定估值。晨星：宽护城河 20 年、窄护城河 10 年、无护城河 5 年。</li>
+</ul>
+</div>
+
+<h2>六、落地：三层执行方案（对接现有体系）</h2>
+<div class="card">
+<h3>第一层 · 本地量化确定性门限（已可跑）</h3>
+<p>脚本 <code>scripts/certainty_test.py</code> 已在 PG 上验证可行。指标全部来自本地表：</p>
+<table>
+<tr><th>指标</th><th>字段来源</th><th>方向</th></tr>
+<tr><td>盈利含金量 OCF/净利</td><td>cashflow.n_cashflow_act ÷ income.n_income_attr_p（3年合计）</td><td>高好，clip 0~5</td></tr>
+<tr><td>ROE 水平 / 稳定性</td><td>financial_indicator.roe（均值 / 标准差）</td><td>高好 / 低好</td></tr>
+<tr><td>毛利率三年趋势</td><td>financial_indicator.grossprofit_margin</td><td>升好</td></tr>
+<tr><td>应收-营收增速差</td><td>balance_sheet.accounts_receiv vs income.revenue（2年CAGR）</td><td>低好</td></tr>
+</table>
+<p class="small">落地建议：把合成确定性分接入 <code>tenbagger_portfolio.py</code> 作为<b>第二道门限</b>——先跑现有九因子排序，再用确定性分剔除后 20%（Q1），或按确定性分位缩放权重上限。这样不牺牲十倍股召回，只降低组合踩雷率。</p>
+
+<h3>第二层 · 人工深研 checklist（本地缺的字段，从年报/雪球补）</h3>
+<ul>
+<li><b>合同负债 / 预收</b>：同比、环比、历史分位，增速拐点领先收入 1-4 季（本地 balance_sheet 无此字段，需人工取数）</li>
+<li><b>在建工程 / 资本开支</b>：由负转正 = 管理层看多未来需求（本地缺 capex 明细）</li>
+<li><b>发出商品 / 存货结构</b>：原材料+在产品增 = 备产（订单能见度好）；库存商品积压 = 滞销</li>
+<li><b>验证措辞链</b>：年报“经营情况讨论”里“送样→验证→小批量→批量→多客户”是否前移</li>
+<li><b>海外收入占比 / 大客户集中度</b>：出海竞争力 + 单一客户风险</li>
+<li><b>管理层资本配置</b>：赚的钱投去哪、ROIIC 是否 &gt; WACC、有无乱并购</li>
+</ul>
+
+<h3>第三层 · 监控与证伪纪律（把“确定性”变成过程管理）</h3>
+<ul>
+<li><b>季度 checkpoint</b>：每季财报后核验“增长衰减三信号”——① 营收/净利增速连续两季下滑 ② 毛利率连续下滑 ③ 合同负债同比转负。<b>任一触发即减仓，两个触发清仓</b>。</li>
+<li><b>越界信号（对应创金合信）：</b>赛道头部市值占宽基指数比重触历史极值、产业 GDP 渗透率破 5-10% 阈值、全行业 capex &gt; 经营现金流（产能过剩预警）→ 系统性减仓成长仓。</li>
+<li><b>证伪优先于证实</b>：成长股的纪律是“先假设增长不可持续，用数据去证伪”，而非“先信故事再找证据”。</li>
+</ul>
+</div>
+
+<div class="callout">
+<b>与现有体系的整合定位：</b><br>
+① <code>daily_tenbagger_scanner.py</code>（高召回）负责<b>不漏</b>机会；② <b>确定性门限层</b>（本报告）负责<b>不踩雷</b>、给仓位上限；③ <code>tenbagger_portfolio.py</code>（高精度九因子）负责<b>排序与建仓</b>；④ 断层信号负责<b>动态确认</b>。四者串起来就是“高召回扫描 → 确定性门限 → 多因子选股 → 断层确认加仓”的完整流水线，而确定性层是其中缺失、现在补上的一环。
+</div>
+
+<p class="note" style="margin-top:24px">数据脚本 <code>scripts/certainty_test.py</code>、结果 <code>outputs/certainty_test.json</code> 可复现。</p>
+<p class="note"><b>免责声明：</b>以上内容基于公开资料调研与本地历史数据统计，仅供研究参考，不构成投资建议。市场有风险，投资需谨慎。过往表现不预示未来收益。</p>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<script>
+var AX = {axisLine:{lineStyle:{color:"#999"}},axisLabel:{color:"#666"}};
+var c1 = echarts.init(document.getElementById("c1"));
+c1.setOption({
+  title:{text:"确定性五分位：正收益概率（前向10年）",left:"center",textStyle:{fontSize:13,color:"#333"}},
+  tooltip:{trigger:"axis"},
+  grid:{left:50,right:20,top:50,bottom:30},
+  xAxis:Object.assign({type:"category",data:["Q1最低","Q2","Q3","Q4","Q5最高"]},AX),
+  yAxis:Object.assign({type:"value",axisLabel:{formatter:"{value}%",color:"#666"}},AX),
+  series:[{type:"bar",data:[34.4,37.4,36.1,44.1,46.8],
+    itemStyle:{color:function(p){return p.dataIndex===4?"#b0342c":"#c9b9a8";}},
+    label:{show:true,position:"top",formatter:"{c}%",color:"#444"}}]
+});
+var c2 = echarts.init(document.getElementById("c2"));
+c2.setOption({
+  title:{text:"20只十倍股在确定性五档的分布",left:"center",textStyle:{fontSize:13,color:"#333"}},
+  tooltip:{trigger:"axis"},
+  grid:{left:50,right:20,top:50,bottom:30},
+  xAxis:Object.assign({type:"category",data:["Q1最低","Q2","Q3","Q4","Q5最高"]},AX),
+  yAxis:Object.assign({type:"value",minInterval:1,axisLabel:{color:"#666"}},AX),
+  series:[{type:"bar",data:[1,7,4,6,2],
+    itemStyle:{color:"#5a7a9a"},
+    label:{show:true,position:"top",color:"#444"}}]
+});
+</script>
+</body>
+</html>

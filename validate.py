@@ -276,6 +276,7 @@ def check_daily_per_stock(db: PostgresDB, expected_start: int, quick: bool = Fal
         ok_active = 0
         delisted_ok = 0
         delisted_stale = []
+        last_dates: list[date] = []  # 供新鲜度分布复用（B-7）
 
         # 超过 cutoff 未更新 → 视为陈旧；港股交易日历与 A 股不同，放宽 2 个交易日
         cutoff_stale = TODAY - timedelta(days=stale_days)
@@ -302,6 +303,7 @@ def check_daily_per_stock(db: PostgresDB, expected_start: int, quick: bool = Fal
                 continue
 
             last_date = date.fromisoformat(last_d)
+            last_dates.append(last_date)
 
             if delist_d and delist_d != "None":
                 # 已退市
@@ -383,6 +385,7 @@ def check_daily_per_stock(db: PostgresDB, expected_start: int, quick: bool = Fal
         print(f"\n  总计: {total} 上市中新鲜 {ok_active} | 陈旧 {len(stale_active)} | 无数据 {len(no_data)}")
         _daily_stats["total"] = total
         _daily_stats["ok"] = ok_active
+        _daily_stats["last_dates"] = last_dates
 
     except Exception as e:
         issue("ERR", "daily", "逐标检查失败", str(e))
@@ -393,35 +396,62 @@ def check_daily_per_stock(db: PostgresDB, expected_start: int, quick: bool = Fal
 # ═══════════════════════════════════════════════════════════════════════════
 
 def check_daily_freshness(db: PostgresDB, quick: bool = False):
-    """按最后更新日期分组统计"""
+    """按最后更新日期分组统计。
+
+    B-7 优化（2026-09-14）：优先复用 check_daily_per_stock 已取的 last_date 列表，
+    避免对 2300 万行再做一次全表 GROUP BY（原实现是全表聚合跑两遍）。
+    """
     if quick:
         return
 
     print("\n── 日线新鲜度分布 ──")
 
     try:
-        sql = """
-        WITH last_dates AS (
-            SELECT ts_code, MAX(trade_date) as last_date
-            FROM daily_quote
-            GROUP BY ts_code
-        )
-        SELECT
-            CASE
-                WHEN last_date >= CURRENT_DATE - INTERVAL '3 days' THEN '0-2天前'
-                WHEN last_date >= CURRENT_DATE - INTERVAL '7 days' THEN '3-7天前'
-                WHEN last_date >= CURRENT_DATE - INTERVAL '14 days' THEN '8-14天前'
-                WHEN last_date >= CURRENT_DATE - INTERVAL '30 days' THEN '15-30天前'
-                WHEN last_date >= CURRENT_DATE - INTERVAL '90 days' THEN '31-90天前'
-                WHEN last_date >= date_trunc('year', CURRENT_DATE) THEN '今年较早'
-                ELSE '往年'
-            END as freshness,
-            COUNT(*) as cnt
-        FROM last_dates
-        GROUP BY freshness
-        ORDER BY MIN(last_date) DESC
-        """
-        rows = db.query(sql)
+        last_dates = _daily_stats.get("last_dates")
+        if last_dates:
+            buckets = {"0-2天前": 0, "3-7天前": 0, "8-14天前": 0, "15-30天前": 0,
+                       "31-90天前": 0, "今年较早": 0, "往年": 0}
+            ytd = date(TODAY.year, 1, 1)
+            for d in last_dates:
+                delta = (TODAY - d).days
+                if delta <= 2:
+                    buckets["0-2天前"] += 1
+                elif delta <= 7:
+                    buckets["3-7天前"] += 1
+                elif delta <= 14:
+                    buckets["8-14天前"] += 1
+                elif delta <= 30:
+                    buckets["15-30天前"] += 1
+                elif delta <= 90:
+                    buckets["31-90天前"] += 1
+                elif d >= ytd:
+                    buckets["今年较早"] += 1
+                else:
+                    buckets["往年"] += 1
+            rows = [{"freshness": k, "cnt": v} for k, v in buckets.items() if v]
+        else:
+            sql = """
+            WITH last_dates AS (
+                SELECT ts_code, MAX(trade_date) as last_date
+                FROM daily_quote
+                GROUP BY ts_code
+            )
+            SELECT
+                CASE
+                    WHEN last_date >= CURRENT_DATE - INTERVAL '3 days' THEN '0-2天前'
+                    WHEN last_date >= CURRENT_DATE - INTERVAL '7 days' THEN '3-7天前'
+                    WHEN last_date >= CURRENT_DATE - INTERVAL '14 days' THEN '8-14天前'
+                    WHEN last_date >= CURRENT_DATE - INTERVAL '30 days' THEN '15-30天前'
+                    WHEN last_date >= CURRENT_DATE - INTERVAL '90 days' THEN '31-90天前'
+                    WHEN last_date >= date_trunc('year', CURRENT_DATE) THEN '今年较早'
+                    ELSE '往年'
+                END as freshness,
+                COUNT(*) as cnt
+            FROM last_dates
+            GROUP BY freshness
+            ORDER BY MIN(last_date) DESC
+            """
+            rows = db.query(sql)
 
         total = sum(r["cnt"] for r in rows)
         for r in rows:
@@ -583,20 +613,20 @@ def check_ohlc_quality(db: PostgresDB):
     print("\n── OHLC 数据质量 (PostgreSQL) ──")
 
     try:
-        # 负值 / 零值
-        neg = db.query_scalar("""
-            SELECT COUNT(*) FROM daily_quote
-            WHERE open <= 0 OR high <= 0 OR low <= 0 OR close <= 0
+        # B-8 优化（2026-09-14）：负值/high<low/NULL 三项合并为一次全表扫描
+        row = db.query_one("""
+            SELECT
+                SUM(CASE WHEN open <= 0 OR high <= 0 OR low <= 0 OR close <= 0 THEN 1 ELSE 0 END) AS neg,
+                SUM(CASE WHEN high < low THEN 1 ELSE 0 END) AS hl,
+                SUM(CASE WHEN open IS NULL OR high IS NULL OR low IS NULL OR close IS NULL
+                         THEN 1 ELSE 0 END) AS null_cnt
+            FROM daily_quote
         """)
+        neg, hl, nulls = (int(v) if v is not None else 0 for v in row)
         if neg:
             issue("ERR", "ohlc", "负值或零值价格", f"{neg:,} 行")
         else:
             issue("OK", "ohlc", "无负价或零价")
-
-        # high < low
-        hl = db.query_scalar("""
-            SELECT COUNT(*) FROM daily_quote WHERE high < low
-        """)
         if hl:
             issue("ERR", "ohlc", "high < low", f"{hl:,} 行")
         else:
@@ -635,11 +665,7 @@ def check_ohlc_quality(db: PostgresDB):
             if hk_extreme:
                 issue("WARN", "ohlc", "港股极端波动 |pct_chg|>60%", f"{hk_extreme:,} 行")
 
-        # NULL 值
-        nulls = db.query_scalar("""
-            SELECT COUNT(*) FROM daily_quote
-            WHERE open IS NULL OR high IS NULL OR low IS NULL OR close IS NULL
-        """)
+        # NULL 值（已并入上方合并查询）
         if nulls:
             issue("WARN", "ohlc", "OHLC 含 NULL", f"{nulls:,} 行")
         else:
@@ -939,6 +965,225 @@ def check_trade_cal(db: PostgresDB, expected_start: int):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# 6.5 新增检查（2026-09-14 质检优化 A 组）
+# ═══════════════════════════════════════════════════════════════════════════
+
+def check_trade_year_consistency(db: PostgresDB):
+    """A-2: 分区键一致性 — EXTRACT(YEAR FROM trade_date) 必须等于 trade_year。
+
+    分区键写错会让同一 (ts_code, trade_date) 跨分区出现逻辑重复行，主键无法拦截。
+    """
+    print("\n── 分区键一致性 ──")
+    try:
+        for tbl, ycol in (("daily_quote", "trade_year"), ("etf_quote", "trade_year"),
+                          ("index_daily", "trade_year")):
+            try:
+                bad = db.query_scalar(
+                    f"SELECT COUNT(*) FROM {tbl} WHERE EXTRACT(YEAR FROM trade_date)::int <> {ycol}")
+                if bad:
+                    issue("ERR", "partition", f"{tbl}.trade_year 与 trade_date 不一致", f"{int(bad):,} 行")
+                else:
+                    issue("OK", "partition", f"{tbl} 分区键一致")
+            except Exception as e:
+                if "trade_year" in str(e):
+                    continue  # 该表无 trade_year 列，跳过
+                issue("WARN", "partition", tbl, str(e)[:80])
+    except Exception as e:
+        issue("ERR", "partition", "查询失败", str(e))
+
+
+def check_recent_gaps(db: PostgresDB, window: int = 60, min_gap: int = 5):
+    """A-1: 近期断档检测 — 近 N 个交易日内，单只标的累计缺失交易日 ≥ min_gap。
+
+    只查近期窗口（约 2s）：pipeline 漏数、导出中断、分区写入异常都会先在这里暴露。
+    （长期历史断档多为真实停牌，见 --deep-gaps）
+    """
+    if window <= 0:
+        return
+    print("\n── 近期断档检测 ──")
+    try:
+        rows = db.query("""
+            WITH cal AS (
+                SELECT cal_date, ROW_NUMBER() OVER (ORDER BY cal_date) AS rn
+                FROM trade_cal WHERE is_open::int = 1
+            ), cut AS (
+                SELECT MAX(rn) - %s AS rn_cut FROM cal
+            ), x AS (
+                SELECT ts_code, trade_date,
+                       LAG(trade_date) OVER (PARTITION BY ts_code ORDER BY trade_date) AS prev_d
+                FROM daily_quote WHERE trade_date >= CURRENT_DATE - %s
+            )
+            SELECT x.ts_code,
+                   SUM(c2.rn - c1.rn - 1) AS gap_days,
+                   MAX(c2.rn - c1.rn - 1) AS max_gap
+            FROM x
+            JOIN cal c1 ON c1.cal_date = x.prev_d
+            JOIN cal c2 ON c2.cal_date = x.trade_date
+            WHERE x.prev_d IS NOT NULL AND c2.rn > (SELECT rn_cut FROM cut)
+            GROUP BY x.ts_code
+            HAVING SUM(c2.rn - c1.rn - 1) >= %s
+            ORDER BY gap_days DESC
+        """, (window, window * 4, min_gap))
+        if not rows:
+            issue("OK", "gap", f"近 {window} 个交易日无异常断档")
+        else:
+            names = ", ".join(f"{r['ts_code']}(缺{r['gap_days']}日)" for r in rows[:8])
+            issue("WARN", "gap", f"近 {window} 个交易日存在断档", f"{len(rows)} 只: {names}")
+            for r in rows:
+                missing_data.setdefault("recent_gaps", []).append({
+                    "ts_code": r["ts_code"], "gap_days": int(r["gap_days"]),
+                    "max_gap": int(r["max_gap"]), "window": window,
+                })
+    except Exception as e:
+        issue("ERR", "gap", "近期断档查询失败", str(e))
+
+
+def check_deep_gaps(db: PostgresDB, since_year: int = 2015, min_total: int = 30):
+    """A-1 深查（周度/手动）：since_year 以来累计断档 ≥ min_total 交易日的标的。
+
+    注意：长时间停牌（重大重组、退市整理期）是真实业务事实，不是数据错误。
+    本项输出的是「分布 + TOP 清单」，供人工判断哪些是漏数、哪些是停牌。
+    耗时约 45s（1600 万行窗口计算），故默认关闭，用 --deep-gaps 触发。
+    """
+    print(f"\n── 历史断档深查 ({since_year}+) ──")
+    try:
+        rows = db.query("""
+            WITH cal AS (
+                SELECT cal_date, ROW_NUMBER() OVER (ORDER BY cal_date) AS rn
+                FROM trade_cal WHERE is_open::int = 1
+            ), x AS (
+                SELECT ts_code, trade_date,
+                       LAG(trade_date) OVER (PARTITION BY ts_code ORDER BY trade_date) AS prev_d
+                FROM daily_quote WHERE trade_date >= %s
+            )
+            SELECT x.ts_code, SUM(c2.rn - c1.rn - 1) AS gap_days, MAX(c2.rn - c1.rn - 1) AS max_gap
+            FROM x
+            JOIN cal c1 ON c1.cal_date = x.prev_d
+            JOIN cal c2 ON c2.cal_date = x.trade_date
+            WHERE x.prev_d IS NOT NULL
+            GROUP BY x.ts_code
+            HAVING SUM(c2.rn - c1.rn - 1) >= %s
+            ORDER BY gap_days DESC
+        """, (f"{since_year}-01-01", min_total))
+        if not rows:
+            issue("OK", "gap-deep", f"{since_year}+ 无累计断档 ≥{min_total} 日的标的")
+        else:
+            names = ", ".join(f"{r['ts_code']}({r['gap_days']}日/最长{r['max_gap']})" for r in rows[:8])
+            issue("WARN", "gap-deep", f"{since_year}+ 累计断档 ≥{min_total} 交易日",
+                  f"{len(rows)} 只（多为长期停牌，TOP: {names}）")
+    except Exception as e:
+        issue("ERR", "gap-deep", "深查失败", str(e))
+
+
+def check_csv_sync(db: PostgresDB, n: int = 25):
+    """A-3: L1 每日 PG↔CSV 抽样对账（把「改库忘重导」的发现时间从 L2 周六提到每天）。
+
+    口径设计（避开交易日 export 前的正常滞后）：
+      - 退市/停牌类标的（stocks.delist_date 非空）：CSV 行数必须严格等于 PG；
+      - 活跃标的：只查 CSV 行数 > PG（任何情况下都是异常）。
+    """
+    print("\n── PG ↔ CSV 抽样对账 ──")
+    if not DAILY_DIR.exists():
+        issue("WARN", "csv-sync", "daily/", "目录不存在")
+        return
+    try:
+        delisted = [r["ts_code"] for r in db.query(
+            "SELECT ts_code FROM stocks WHERE delist_date IS NOT NULL AND ts_code NOT LIKE '%.HK' "
+            "ORDER BY random() LIMIT %s", (n,))]
+        active = [r["ts_code"] for r in db.query(
+            "SELECT ts_code FROM daily_quote WHERE trade_date = CURRENT_DATE - INTERVAL '30 days' "
+            "AND ts_code NOT LIKE '%.HK' ORDER BY random() LIMIT %s", (n,))]
+
+        lag, ahead, nofile, checked = [], [], 0, 0
+        for ts in delisted:
+            f = DAILY_DIR / f"{ts}.csv"
+            if not f.exists():
+                nofile += 1
+                continue
+            n_csv = sum(1 for _ in open(f, "rb")) - 1
+            n_pg = db.query_scalar("SELECT COUNT(*) FROM daily_quote WHERE ts_code = %s", (ts,))
+            checked += 1
+            if n_pg > n_csv:
+                lag.append((ts, n_csv, int(n_pg)))
+            elif n_csv > n_pg:
+                ahead.append((ts, n_csv, int(n_pg)))
+        for ts in active:
+            f = DAILY_DIR / f"{ts}.csv"
+            if not f.exists():
+                nofile += 1
+                continue
+            n_csv = sum(1 for _ in open(f, "rb")) - 1
+            n_pg = db.query_scalar("SELECT COUNT(*) FROM daily_quote WHERE ts_code = %s", (ts,))
+            checked += 1
+            if n_csv > n_pg:
+                ahead.append((ts, n_csv, int(n_pg)))
+
+        if lag or ahead:
+            detail = []
+            if lag:
+                detail.append(f"{len(lag)} 个退市股 CSV 落后 PG（需重跑 scripts/export.py）"
+                              f" 例: {lag[:3]}")
+            if ahead:
+                detail.append(f"{len(ahead)} 个 CSV 行数超过 PG（疑似删数未重导）例: {ahead[:3]}")
+            issue("ERR" if ahead else ("ERR" if len(lag) > 20 else "WARN"), "csv-sync",
+                  f"PG↔CSV 不一致 (抽样 {checked} 个文件)", " | ".join(detail))
+        else:
+            issue("OK", "csv-sync", f"抽样 {checked} 个文件行数一致" + (f"（{nofile} 个无文件已跳过）" if nofile else ""))
+    except Exception as e:
+        issue("ERR", "csv-sync", "对账失败", str(e))
+
+
+def check_coverage_start(db: PostgresDB, expected_start: int):
+    """A-5: 覆盖起点检查 — MIN(trade_date) 应不晚于 expected_start（原参数形同虚设）。"""
+    print("\n── 覆盖起点 ──")
+    try:
+        min_d = db.query_scalar("SELECT MIN(trade_date) FROM daily_quote WHERE ts_code NOT LIKE '%.HK'")
+        if not min_d:
+            issue("ERR", "coverage", "A股日线", "无数据")
+        else:
+            lag_years = max(min_d.year - expected_start, 0)
+            if lag_years <= 1:
+                issue("OK", "coverage", "A股日线覆盖起点", f"{min_d} (预期 {expected_start})")
+            else:
+                issue("WARN", "coverage", "A股日线覆盖起点晚于预期",
+                      f"{min_d}，比预期 {expected_start} 晚 {lag_years} 年")
+    except Exception as e:
+        issue("ERR", "coverage", "查询失败", str(e))
+
+
+def check_etf_index_continuity(db: PostgresDB, stale_days: int = 7):
+    """A-4: ETF / 指数逐标连续性（原来只有全表 MAX，单只断更发现不了）。"""
+    print("\n── ETF / 指数逐标连续性 ──")
+    try:
+        last_td = db.query_scalar(
+            "SELECT MAX(cal_date) FROM trade_cal WHERE is_open::int = 1 AND cal_date <= CURRENT_DATE")
+        if not last_td:
+            issue("WARN", "etf-index", "基准交易日", "trade_cal 无数据")
+            return
+        for tbl, key, label, tol_days in (("etf_quote", "code", "ETF", stale_days),
+                                          ("index_daily", "symbol", "指数", 3)):
+            rows = db.query(f"""
+                WITH t AS (SELECT {key} AS k, MIN(trade_date) f, MAX(trade_date) l, COUNT(*) n
+                           FROM {tbl} GROUP BY {key})
+                SELECT k, f::text, l::text, n FROM t ORDER BY l
+            """)
+            stale = [r for r in rows if (last_td - r["l"]).days > tol_days]
+            active = [r for r in rows if (last_td - r["l"]).days <= tol_days]
+            if stale:
+                names = ", ".join(f"{r['k']}({r['l']})" for r in stale[:6])
+                issue("WARN", "etf-index", f"{label} 数据滞后 >{tol_days} 天",
+                      f"{len(stale)}/{len(rows)} 只: {names}")
+            else:
+                issue("OK", "etf-index", f"{label} 逐标新鲜", f"{len(active)} 只全部在 {tol_days} 天内")
+            for r in stale:
+                missing_data.setdefault("etf_index_stale", []).append({
+                    "table": tbl, "key": r["k"], "last_date": r["l"], "rows": r["n"],
+                })
+    except Exception as e:
+        issue("ERR", "etf-index", "查询失败", str(e))
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # 7. CSV 文件模式检查（保留原有功能）
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -1008,6 +1253,12 @@ if __name__ == "__main__":
                         help="陈旧判定阈值：超过 N 天未更新视为陈旧 (默认7，港股额外放宽2个交易日)")
     parser.add_argument("--skip-ohlc", action="store_true", help="跳过 OHLC 检查")
     parser.add_argument("--skip-financial", action="store_true", help="跳过财报连续性检查")
+    parser.add_argument("--skip-gaps", action="store_true", help="跳过近期断档检测")
+    parser.add_argument("--gap-window", type=int, default=60,
+                        help="近期断档检测窗口（交易日，默认60，0=关闭）")
+    parser.add_argument("--deep-gaps", action="store_true",
+                        help="额外跑历史断档深查（2015+，约45s，周度/手动用）")
+    parser.add_argument("--skip-csv-sync", action="store_true", help="跳过 PG↔CSV 抽样对账")
     parser.add_argument("--report", help="输出 JSON 报告文件")
     parser.add_argument("--missing-report", help="输出缺失数据明细 JSON，供 fetch_and_backup.py --from-report 使用")
     args = parser.parse_args()
@@ -1036,6 +1287,15 @@ if __name__ == "__main__":
             if not args.skip_ohlc:
                 check_ohlc_quality(db)
                 check_price_consistency(db)
+            check_trade_year_consistency(db)
+            check_coverage_start(db, args.expected_start)
+            if not args.skip_gaps:
+                check_recent_gaps(db, window=args.gap_window)
+            if args.deep_gaps:
+                check_deep_gaps(db)
+            if not args.skip_csv_sync:
+                check_csv_sync(db)
+            check_etf_index_continuity(db, stale_days=args.stale_days)
             check_daily_freshness(db, quick=args.quick)
 
             if not args.skip_financial and not args.quick:
@@ -1099,5 +1359,27 @@ if __name__ == "__main__":
             for tbl, gaps in missing_data['financial_gaps'].items():
                 severe = [g for g in gaps if g.get('severity') == 'missing']
                 print(f"  {tbl} 缺失: {len(gaps)} 只 (含 {len(severe)} 只缺整年)")
+
+    # ── 历史趋势（C-11，2026-09-14）：每次 append 一行摘要，退化趋势可见 ──
+    try:
+        hist = REPO / "logs" / "validate_history.jsonl"
+        hist.parent.mkdir(parents=True, exist_ok=True)
+        with open(hist, "a") as f:
+            f.write(json.dumps({
+                "ts": datetime.now().isoformat(timespec="seconds"),
+                "date": str(TODAY),
+                "mode": args.source,
+                "elapsed_seconds": round(elapsed, 1),
+                "errors": errs, "warnings": warns, "passed": oks,
+                "stale_daily": len(missing_data["daily_gaps"]),
+                "no_data_stocks": len(missing_data["no_data_stocks"]),
+                "recent_gaps": len(missing_data.get("recent_gaps", [])),
+                "etf_index_stale": len(missing_data.get("etf_index_stale", [])),
+                "partition_bad": sum(1 for i in all_issues
+                                     if i["category"] == "partition" and i["level"] == "ERR"),
+            }, ensure_ascii=False) + "\n")
+        print(f"历史趋势已追加: {hist}")
+    except Exception as e:
+        print(f"[WARN] 历史趋势写入失败: {e}")
 
     sys.exit(1 if errs > 0 else 0)

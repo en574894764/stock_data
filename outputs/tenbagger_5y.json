@@ -1,0 +1,708 @@
+{
+ "window": [
+  "2021-09-12",
+  "2026-09-11"
+ ],
+ "universe_n": 4353,
+ "ten_year_extra": {
+  "universe_n": 2652,
+  "n_hold": 20,
+  "n_touch": 45,
+  "n_rc": 25,
+  "roller_coasters": [
+   {
+    "ts_code": "002812.SZ",
+    "name": "恩捷股份",
+    "ever_max": 43.7,
+    "final_mult": 9.9
+   },
+   {
+    "ts_code": "300274.SZ",
+    "name": "阳光电源",
+    "ever_max": 22.1,
+    "final_mult": 8.5
+   },
+   {
+    "ts_code": "603160.SH",
+    "name": "汇顶科技",
+    "ever_max": 17.7,
+    "final_mult": 3.3
+   },
+   {
+    "ts_code": "601012.SH",
+    "name": "隆基绿能",
+    "ever_max": 16.7,
+    "final_mult": 3.8
+   },
+   {
+    "ts_code": "601888.SH",
+    "name": "中国中免",
+    "ever_max": 14.8,
+    "final_mult": 3.0
+   },
+   {
+    "ts_code": "300014.SZ",
+    "name": "亿纬锂能",
+    "ever_max": 14.7,
+    "final_mult": 6.3
+   },
+   {
+    "ts_code": "603667.SH",
+    "name": "五洲新春",
+    "ever_max": 13.2,
+    "final_mult": 7.5
+   },
+   {
+    "ts_code": "300122.SZ",
+    "name": "智飞生物",
+    "ever_max": 13.0,
+    "final_mult": 1.4
+   },
+   {
+    "ts_code": "600132.SH",
+    "name": "重庆啤酒",
+    "ever_max": 12.9,
+    "final_mult": 3.3
+   },
+   {
+    "ts_code": "600763.SH",
+    "name": "通策医疗",
+    "ever_max": 12.6,
+    "final_mult": 1.8
+   },
+   {
+    "ts_code": "300542.SZ",
+    "name": "新晨科技",
+    "ever_max": 12.5,
+    "final_mult": 6.5
+   },
+   {
+    "ts_code": "000799.SZ",
+    "name": "酒鬼酒",
+    "ever_max": 12.5,
+    "final_mult": 2.0
+   },
+   {
+    "ts_code": "600176.SH",
+    "name": "中国巨石",
+    "ever_max": 12.1,
+    "final_mult": 7.7
+   },
+   {
+    "ts_code": "300395.SZ",
+    "name": "菲利华",
+    "ever_max": 11.7,
+    "final_mult": 8.1
+   },
+   {
+    "ts_code": "603688.SH",
+    "name": "石英股份",
+    "ever_max": 11.5,
+    "final_mult": 5.7
+   },
+   {
+    "ts_code": "603859.SH",
+    "name": "能科科技",
+    "ever_max": 11.0,
+    "final_mult": 7.9
+   },
+   {
+    "ts_code": "002475.SZ",
+    "name": "立讯精密",
+    "ever_max": 10.9,
+    "final_mult": 8.2
+   },
+   {
+    "ts_code": "002080.SZ",
+    "name": "中材科技",
+    "ever_max": 10.7,
+    "final_mult": 6.6
+   },
+   {
+    "ts_code": "002050.SZ",
+    "name": "三花智控",
+    "ever_max": 10.7,
+    "final_mult": 6.7
+   },
+   {
+    "ts_code": "600438.SH",
+    "name": "通威股份",
+    "ever_max": 10.6,
+    "final_mult": 2.9
+   },
+   {
+    "ts_code": "002460.SZ",
+    "name": "赣锋锂业",
+    "ever_max": 10.5,
+    "final_mult": 4.3
+   },
+   {
+    "ts_code": "600702.SH",
+    "name": "舍得酒业",
+    "ever_max": 10.4,
+    "final_mult": 1.8
+   },
+   {
+    "ts_code": "603606.SH",
+    "name": "东方电缆",
+    "ever_max": 10.4,
+    "final_mult": 7.0
+   },
+   {
+    "ts_code": "300015.SZ",
+    "name": "爱尔眼科",
+    "ever_max": 10.3,
+    "final_mult": 2.6
+   },
+   {
+    "ts_code": "000858.SZ",
+    "name": "五粮液",
+    "ever_max": 10.1,
+    "final_mult": 3.4
+   }
+  ]
+ },
+ "hold_list": [
+  {
+   "ts_code": "300857.SZ",
+   "name": "协创数据",
+   "industry": "IT设备",
+   "final_mult": 26.7,
+   "ever_max": 30.8,
+   "first_10x": "2025-09-01",
+   "pe": 49.6,
+   "pb": 4.27,
+   "mv": 53.0,
+   "roe": 11.0,
+   "ory": 44.5,
+   "gm": 11.5,
+   "ni_mult": 11.6,
+   "rev_mult": 5.4
+  },
+  {
+   "ts_code": "300308.SZ",
+   "name": "中际旭创",
+   "industry": "通信设备",
+   "final_mult": 26.4,
+   "ever_max": 34.1,
+   "first_10x": "2025-08-01",
+   "pe": 30.2,
+   "pb": 3.1,
+   "mv": 254.0,
+   "roe": 11.7,
+   "ory": 48.2,
+   "gm": 25.4,
+   "ni_mult": 12.5,
+   "rev_mult": 5.4
+  },
+  {
+   "ts_code": "300502.SZ",
+   "name": "新易盛",
+   "industry": "通信设备",
+   "final_mult": 23.7,
+   "ever_max": 30.1,
+   "first_10x": "2025-08-01",
+   "pe": 30.8,
+   "pb": 5.25,
+   "mv": 192.0,
+   "roe": 20.6,
+   "ory": 71.5,
+   "gm": 36.9,
+   "ni_mult": 19.4,
+   "rev_mult": 12.4
+  },
+  {
+   "ts_code": "603929.SH",
+   "name": "亚翔集成",
+   "industry": "装修装饰",
+   "final_mult": 21.0,
+   "ever_max": 33.6,
+   "first_10x": "2026-01-01",
+   "pe": null,
+   "pb": 2.54,
+   "mv": 26.0,
+   "roe": -3.0,
+   "ory": -50.8,
+   "gm": 8.3,
+   "ni_mult": null,
+   "rev_mult": 5.3
+  },
+  {
+   "ts_code": "300394.SZ",
+   "name": "天孚通信",
+   "industry": "通信设备",
+   "final_mult": 18.6,
+   "ever_max": 25.7,
+   "first_10x": "2025-08-01",
+   "pe": 39.4,
+   "pb": 5.33,
+   "mv": 115.0,
+   "roe": 22.0,
+   "ory": 67.0,
+   "gm": 52.8,
+   "ni_mult": 7.2,
+   "rev_mult": 5.9
+  },
+  {
+   "ts_code": "300757.SZ",
+   "name": "罗博特科",
+   "industry": "专用机械",
+   "final_mult": 17.3,
+   "ever_max": 17.3,
+   "first_10x": "2026-01-01",
+   "pe": null,
+   "pb": 6.09,
+   "mv": 44.0,
+   "roe": -9.3,
+   "ory": -46.2,
+   "gm": 11.2,
+   "ni_mult": null,
+   "rev_mult": 1.8
+  },
+  {
+   "ts_code": "688256.SH",
+   "name": "寒武纪",
+   "industry": "半导体",
+   "final_mult": 16.9,
+   "ever_max": 23.9,
+   "first_10x": "2025-08-01",
+   "pe": null,
+   "pb": 6.0,
+   "mv": 367.0,
+   "roe": -8.1,
+   "ory": 3.4,
+   "gm": 65.4,
+   "ni_mult": null,
+   "rev_mult": 14.2
+  },
+  {
+   "ts_code": "300972.SZ",
+   "name": "万辰集团",
+   "industry": "食品",
+   "final_mult": 14.7,
+   "ever_max": 17.7,
+   "first_10x": "2025-04-01",
+   "pe": 70.4,
+   "pb": 3.73,
+   "mv": 23.0,
+   "roe": 25.8,
+   "ory": -0.2,
+   "gm": 27.9,
+   "ni_mult": 14.0,
+   "rev_mult": 114.4
+  },
+  {
+   "ts_code": "688195.SH",
+   "name": "腾景科技",
+   "industry": "元器件",
+   "final_mult": 14.5,
+   "ever_max": 15.8,
+   "first_10x": "2026-03-01",
+   "pe": 54.8,
+   "pb": 3.74,
+   "mv": 30.0,
+   "roe": 18.7,
+   "ory": 50.4,
+   "gm": 42.5,
+   "ni_mult": 1.0,
+   "rev_mult": 2.2
+  },
+  {
+   "ts_code": "603268.SH",
+   "name": "松发股份",
+   "industry": "船舶",
+   "final_mult": 13.7,
+   "ever_max": 13.7,
+   "first_10x": "2026-07-01",
+   "pe": null,
+   "pb": 2.85,
+   "mv": 19.0,
+   "roe": 0.2,
+   "ory": -23.1,
+   "gm": 37.1,
+   "ni_mult": 1639.1,
+   "rev_mult": 48.5
+  },
+  {
+   "ts_code": "601869.SH",
+   "name": "长飞光纤",
+   "industry": "通信设备",
+   "final_mult": 13.4,
+   "ever_max": 14.1,
+   "first_10x": "2026-04-01",
+   "pe": 32.5,
+   "pb": 2.64,
+   "mv": 247.0,
+   "roe": 6.1,
+   "ory": 5.8,
+   "gm": 21.7,
+   "ni_mult": 1.5,
+   "rev_mult": 1.7
+  },
+  {
+   "ts_code": "688313.SH",
+   "name": "仕佳光子",
+   "industry": "通信设备",
+   "final_mult": 13.2,
+   "ever_max": 15.4,
+   "first_10x": "2026-04-01",
+   "pe": 262.9,
+   "pb": 4.9,
+   "mv": 57.0,
+   "roe": 4.2,
+   "ory": 22.9,
+   "gm": 26.1,
+   "ni_mult": 9.8,
+   "rev_mult": 3.2
+  },
+  {
+   "ts_code": "300548.SZ",
+   "name": "长芯博创",
+   "industry": "通信设备",
+   "final_mult": 12.6,
+   "ever_max": 14.7,
+   "first_10x": "2026-04-01",
+   "pe": 44.5,
+   "pb": 4.21,
+   "mv": 60.0,
+   "roe": 13.2,
+   "ory": 90.8,
+   "gm": 25.7,
+   "ni_mult": 3.8,
+   "rev_mult": 3.3
+  },
+  {
+   "ts_code": "603083.SH",
+   "name": "剑桥科技",
+   "industry": "通信设备",
+   "final_mult": 11.7,
+   "ever_max": 12.0,
+   "first_10x": "2026-06-01",
+   "pe": null,
+   "pb": 2.23,
+   "mv": 38.0,
+   "roe": -18.7,
+   "ory": -8.9,
+   "gm": 12.9,
+   "ni_mult": null,
+   "rev_mult": 1.8
+  },
+  {
+   "ts_code": "300570.SZ",
+   "name": "太辰光",
+   "industry": "通信设备",
+   "final_mult": 11.2,
+   "ever_max": 13.5,
+   "first_10x": "2026-06-01",
+   "pe": 49.4,
+   "pb": 3.38,
+   "mv": 39.0,
+   "roe": 5.9,
+   "ory": -23.8,
+   "gm": 30.3,
+   "ni_mult": 4.0,
+   "rev_mult": 2.7
+  },
+  {
+   "ts_code": "002779.SZ",
+   "name": "中坚科技",
+   "industry": "农用机械",
+   "final_mult": 11.1,
+   "ever_max": 14.6,
+   "first_10x": "2025-08-01",
+   "pe": null,
+   "pb": 2.66,
+   "mv": 17.0,
+   "roe": -3.8,
+   "ory": -0.1,
+   "gm": 17.0,
+   "ni_mult": null,
+   "rev_mult": 2.6
+  },
+  {
+   "ts_code": "300475.SZ",
+   "name": "香农芯创",
+   "industry": "元器件",
+   "final_mult": 10.5,
+   "ever_max": 16.3,
+   "first_10x": "2026-04-01",
+   "pe": 75.9,
+   "pb": 5.55,
+   "mv": 77.0,
+   "roe": 4.9,
+   "ory": -12.1,
+   "gm": 30.6,
+   "ni_mult": 8.5,
+   "rev_mult": 133.1
+  },
+  {
+   "ts_code": "300620.SZ",
+   "name": "光库科技",
+   "industry": "通信设备",
+   "final_mult": 10.4,
+   "ever_max": 12.6,
+   "first_10x": "2026-05-01",
+   "pe": 66.1,
+   "pb": 4.18,
+   "mv": 61.0,
+   "roe": 5.8,
+   "ory": 25.8,
+   "gm": 44.0,
+   "ni_mult": 3.0,
+   "rev_mult": 3.0
+  }
+ ],
+ "roller_coasters": [
+  {
+   "ts_code": "301071.SZ",
+   "name": "力量钻石",
+   "ever_max": 20.7,
+   "final_mult": 7.8
+  },
+  {
+   "ts_code": "300779.SZ",
+   "name": "惠城环保",
+   "ever_max": 16.3,
+   "final_mult": 6.3
+  },
+  {
+   "ts_code": "605255.SH",
+   "name": "天普股份",
+   "ever_max": 14.6,
+   "final_mult": 5.4
+  },
+  {
+   "ts_code": "603256.SH",
+   "name": "宏和科技",
+   "ever_max": 14.1,
+   "final_mult": 7.5
+  },
+  {
+   "ts_code": "300476.SZ",
+   "name": "胜宏科技",
+   "ever_max": 13.4,
+   "final_mult": 8.9
+  },
+  {
+   "ts_code": "600105.SH",
+   "name": "永鼎股份",
+   "ever_max": 13.2,
+   "final_mult": 9.1
+  },
+  {
+   "ts_code": "301069.SZ",
+   "name": "凯盛新材",
+   "ever_max": 12.8,
+   "final_mult": 3.8
+  },
+  {
+   "ts_code": "603516.SH",
+   "name": "淳中科技",
+   "ever_max": 12.2,
+   "final_mult": 5.6
+  },
+  {
+   "ts_code": "688585.SH",
+   "name": "上纬新材",
+   "ever_max": 12.2,
+   "final_mult": 9.4
+  },
+  {
+   "ts_code": "002837.SZ",
+   "name": "英维克",
+   "ever_max": 12.0,
+   "final_mult": 9.5
+  },
+  {
+   "ts_code": "603389.SH",
+   "name": "亚振家居",
+   "ever_max": 11.7,
+   "final_mult": 8.1
+  },
+  {
+   "ts_code": "002432.SZ",
+   "name": "九安医疗",
+   "ever_max": 11.4,
+   "final_mult": 9.8
+  },
+  {
+   "ts_code": "600113.SH",
+   "name": "浙江东日",
+   "ever_max": 11.2,
+   "final_mult": 7.4
+  },
+  {
+   "ts_code": "603629.SH",
+   "name": "利通电子",
+   "ever_max": 10.5,
+   "final_mult": 8.6
+  },
+  {
+   "ts_code": "002290.SZ",
+   "name": "禾盛新材",
+   "ever_max": 10.5,
+   "final_mult": 7.5
+  },
+  {
+   "ts_code": "301060.SZ",
+   "name": "兰卫医学",
+   "ever_max": 10.5,
+   "final_mult": 3.1
+  },
+  {
+   "ts_code": "002384.SZ",
+   "name": "东山精密",
+   "ever_max": 10.3,
+   "final_mult": 8.5
+  }
+ ],
+ "summary": {
+  "n_uni": 4353,
+  "n_hold": 18,
+  "n_touch": 35,
+  "n_rc": 17,
+  "pct_hold": 0.41,
+  "pct_touch": 0.8,
+  "hold_pe_med": 49.5,
+  "hold_pb_med": 3.96,
+  "hold_mv_med": 55.0,
+  "hold_roe_med": 5.85,
+  "hold_ory_med": 4.6,
+  "hold_gm_med": 27.0,
+  "hold_ni_mult_med": 8.5,
+  "hold_rev_mult_med": 4.3,
+  "mkt_pe_med": 35.3,
+  "mkt_pb_med": 2.98,
+  "mkt_mv_med": 63.0,
+  "mkt_roe_med": 10.6,
+  "mkt_ory_med": 7.4,
+  "hold_pe_pct_med": 66.0,
+  "hold_mv_pct_med": 45.0,
+  "hold_roe_pct_med": 30.0,
+  "hold_ory_pct_med": 44.0,
+  "first10x_years": {
+   "2025": 7,
+   "2026": 11
+  },
+  "industry_dist": {
+   "通信设备": 9,
+   "元器件": 2,
+   "IT设备": 1,
+   "装修装饰": 1,
+   "专用机械": 1,
+   "半导体": 1,
+   "食品": 1,
+   "船舶": 1,
+   "农用机械": 1
+  }
+ },
+ "rule_tests": [
+  {
+   "rule": "ROE>15% (质量派)",
+   "n": 946,
+   "hit_hold": 4,
+   "hit_touch": 4,
+   "precision": 0.42,
+   "hold_hits": [
+    "天孚通信",
+    "新易盛",
+    "万辰集团",
+    "腾景科技"
+   ]
+  },
+  {
+   "rule": "营收增速>30% (成长派)",
+   "n": 662,
+   "hit_hold": 6,
+   "hit_touch": 9,
+   "precision": 0.91,
+   "hold_hits": [
+    "中际旭创",
+    "天孚通信",
+    "新易盛",
+    "长芯博创",
+    "协创数据",
+    "腾景科技"
+   ]
+  },
+  {
+   "rule": "PE<20 & PB<2 (便宜派)",
+   "n": 559,
+   "hit_hold": 0,
+   "hit_touch": 0,
+   "precision": 0.0,
+   "hold_hits": []
+  },
+  {
+   "rule": "市值<100亿 (小市值)",
+   "n": 2792,
+   "hit_hold": 13,
+   "hit_touch": 25,
+   "precision": 0.47,
+   "hold_hits": [
+    "中坚科技",
+    "香农芯创",
+    "长芯博创",
+    "太辰光",
+    "光库科技",
+    "罗博特科",
+    "协创数据",
+    "万辰集团",
+    "剑桥科技",
+    "松发股份",
+    "亚翔集成",
+    "腾景科技",
+    "仕佳光子"
+   ]
+  },
+  {
+   "rule": "ROE>10% & 增速>20%",
+   "n": 651,
+   "hit_hold": 6,
+   "hit_touch": 11,
+   "precision": 0.92,
+   "hold_hits": [
+    "中际旭创",
+    "天孚通信",
+    "新易盛",
+    "长芯博创",
+    "协创数据",
+    "腾景科技"
+   ]
+  },
+  {
+   "rule": "ROE>15% & 增速>30% (质量+成长)",
+   "n": 294,
+   "hit_hold": 3,
+   "hit_touch": 3,
+   "precision": 1.02,
+   "hold_hits": [
+    "天孚通信",
+    "新易盛",
+    "腾景科技"
+   ]
+  },
+  {
+   "rule": "PE>60 (高估值派)",
+   "n": 1018,
+   "hit_hold": 4,
+   "hit_touch": 10,
+   "precision": 0.39,
+   "hold_hits": [
+    "香农芯创",
+    "光库科技",
+    "万辰集团",
+    "仕佳光子"
+   ]
+  },
+  {
+   "rule": "PE<20 (纯便宜)",
+   "n": 894,
+   "hit_hold": 0,
+   "hit_touch": 0,
+   "precision": 0.0,
+   "hold_hits": []
+  }
+ ],
+ "base_precision": 0.42
+}

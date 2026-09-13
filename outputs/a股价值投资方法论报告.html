@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>A股价值投资：案例调研 × 数据实证 × 路径方法论</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<style>
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: #f7f8fa; color: #1f2329; margin: 0; line-height: 1.7; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 26px; border-bottom: 3px solid #c0392b; padding-bottom: 12px; }
+  h2 { font-size: 20px; margin-top: 44px; padding-left: 10px; border-left: 4px solid #c0392b; }
+  h3 { font-size: 16px; margin-top: 28px; }
+  .meta { color: #6b7280; font-size: 13px; }
+  .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 18px 22px; margin: 16px 0; box-shadow: 0 1px 2px rgba(0,0,0,0.03); }
+  .tldr-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+  .kpi { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px 16px; }
+  .kpi .num { font-size: 24px; font-weight: 700; color: #c0392b; }
+  .kpi .lbl { font-size: 13px; color: #6b7280; }
+  table { border-collapse: collapse; width: 100%; background: #fff; font-size: 13.5px; margin: 14px 0; }
+  th { background: #f3f4f6; }
+  th, td { border: 1px solid #e5e7eb; padding: 7px 10px; text-align: left; vertical-align: top; }
+  .up { color: #c0392b; font-weight: 600; }
+  .down { color: #1e8449; font-weight: 600; }
+  .chart { width: 100%; height: 340px; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; margin: 14px 0; }
+  .note { font-size: 12.5px; color: #6b7280; background: #f9fafb; border-left: 3px solid #d1d5db; padding: 8px 12px; margin: 10px 0; }
+  .warn { background: #fef7f0; border-left: 3px solid #e67e22; }
+  .src { font-size: 12px; color: #9ca3af; margin-top: 4px; }
+  .concl { background: #fdf3f2; border: 1px solid #f5c6c0; border-radius: 10px; padding: 16px 20px; margin: 18px 0; }
+  .disclaimer { font-size: 13px; color: #6b7280; border-top: 1px solid #e5e7eb; margin-top: 48px; padding-top: 16px; }
+  ul { margin: 6px 0; padding-left: 22px; }
+  li { margin: 4px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>A股价值投资：成功案例调研 × 本地数据实证 × 合理路径推演</h1>
+<p class="meta">报告时间：2026-09-12 ｜ 实证数据：本地 stock_data 仓库（PostgreSQL daily_quote / daily_basic / factor_value），区间 2016-01-01 ~ 2026-09-01，全 A 沪深非 ST 股票池 5226 只 ｜ 实证脚本：scripts/value_factor_eval.py、scripts/value_path_test.py（结果落盘 outputs/*.json）｜ 案例来源：公开报道与访谈（私募排排网、百度百科、雪球、中证报等，非一手来源，业绩数字需核实原文）</p>
+
+<!-- ================= TL;DR ================= -->
+<div class="card">
+<h2 style="margin-top:0;border:none;padding-left:0">核心结论（TL;DR）</h2>
+<ol>
+  <li><b>价值因子在 A 股长期有效</b>：EP/BP/DP/SP 四因子 2016-2026 月度 IC 全部在 5.0%~6.7%，但存在<b>价值陷阱</b>（value4 五分组 Q4 年化 6.5% &gt; Q5 6.1%）——单纯"捡便宜"会踩进烂公司。</li>
+  <li><b>质量（高ROE）是过滤器而非收益引擎</b>：ROE 单因子 IC 仅 0.5% 基本失效；"买当时 ROE 最高的 50 只并长期持有"十年年化仅 -3.8%（回撤 -64%）。质量必须与低估值搭配：双门限组合（价值前40% ∩ ROE前40%）夏普 0.36 为全部组合最高。</li>
+  <li><b>买入时点在"个股层面"很弱、在"市场层面"很强</b>：同一优质股在自身 PB 低分位 vs 高分位买入，未来一年收益差仅 0.6pp；而全市场 PB 中位数处于历史低分位时买入沪深300，未来一年平均 +14.0%（胜率 78%），中/高分位 -5.5%。**择时用于决定"什么时候入市/上仓位"，不用于对单只股票精准抄底**。</li>
+  <li><b>长期持有的收益被"买入价格"吃掉一半</b>：2016 年初买入 ROE Top50 持有 10.7 年，年化 5.2% —— 只有该组合平均 ROE（约 11.3%）的一半。对照大师案例：茅台（林园 2003 熊市底部）、网易（段永平 2002 恐慌期）均在系统性悲观时买入。**优质股也需要好价格，这是 A 股"收益率≈ROE"假说被打折的主因**。</li>
+  <li><b>合理路径</b>：市场估值分位定仓位 → 质量门限筛池（ROE/毛利/现金流）→ 价值因子排序选股（估值分位+多因子）→ 低换手持有（年度再平衡几乎不损失收益）→ 事件驱动的极端恐慌加仓。粗糙的分位-仓位线性规则会牺牲收益（3.4% vs 满仓 6.3%），应作为"仓位区间"而非"频繁开关"。</li>
+</ol>
+</div>
+
+<div class="tldr-grid">
+  <div class="kpi"><div class="num">6.7%</div><div class="lbl">BP 因子 IC（四价值因子最高，2016-2026 月度）</div></div>
+  <div class="kpi"><div class="num">0.5%</div><div class="lbl">ROE 单因子 IC（质量单独选股基本无效）</div></div>
+  <div class="kpi"><div class="num">6.3% / 0.36</div><div class="lbl">双门限 Top50 年化 / 夏普（全部组合最优）</div></div>
+  <div class="kpi"><div class="num">-3.8%</div><div class="lbl">纯质量 Top50 十年年化（2016 高点买白马的代价）</div></div>
+  <div class="kpi"><div class="num">+14% vs -5.5%</div><div class="lbl">市场 PB 低分位 vs 中分位时买入沪深300 的未来一年收益</div></div>
+  <div class="kpi"><div class="num">5.2% vs 11.3%</div><div class="lbl">优质股组合 10 年年化 vs 平均 ROE（价格吃掉一半）</div></div>
+</div>
+
+<!-- ================= Part 1 ================= -->
+<h2>一、成功案例调研：他们是怎么做的</h2>
+
+<p>选取 A 股语境下最具代表性的六位价值投资者（覆盖私募/公募/个人三种形态）。<b>业绩数字来自公开报道，属非一手来源，需核实原文</b>；方法论表述以本人访谈/著作为主。</p>
+
+<table>
+<tr><th>投资人</th><th>核心方法</th><th>选股标准（如何发现优质股）</th><th>买入时点</th><th>代表战绩（报道口径）</th><th>反面教训</th></tr>
+<tr>
+  <td><b>段永平</b><br>（个人）</td>
+  <td>买股票=买公司；商业模式+企业文化双过滤器；集中重仓；不杠杆不做空不懂不碰</td>
+  <td>Right business（护城河/差异化/自由现金流）+ Right people（本分诚信）+ Right price（毛估估未来现金流折现）</td>
+  <td>市场极端恐慌时逆势买入：网易 0.8 美元（现金&gt;市值+诉讼恐慌，2002）；苹果（乔布斯去世暴跌 2011 加仓）</td>
+  <td>网易 6 个月 20 倍、持有 8 年超百倍；苹果/茅台长期重仓</td>
+  <td>自认"稀里糊涂投了拼多多"（能力圈外）；承认 GE 是错误</td>
+</tr>
+<tr>
+  <td><b>林园</b><br>（个人→私募）</td>
+  <td>行业+垄断+成瘾，买入"赚钱机器"不卖，赚企业成长和泡沫的钱；满仓集中</td>
+  <td>毛利率 &gt;18% 准入 / 40% 优选；ROE &gt;10%（优选 20%+）；预收&gt;应收；投入一定产出无限大（茅台型生意）</td>
+  <td>"股票 95% 时间不涨，必须满仓在场等泡沫"——基本不择时，依赖买入时够便宜</td>
+  <td>茅台 2003 年熊市底部 ~23 元建仓 22 年 300~500 倍；片仔癀 15 年百倍；云南白药 32 年 1400 倍</td>
+  <td>2025 年百亿私募中唯一亏损（-6.46%）；2026 年 15 只产品前 5 月全线亏损、169 只产品因"双25%"新规停申——<b>自有资金无限久期的策略，套到有赎回压力的私募上机制性失败</b></td>
+</tr>
+<tr>
+  <td><b>但斌</b><br>（东方港湾）</td>
+  <td>与伟大企业共成长；"世界改变不了的公司"（茅台）+“改变世界的公司"（英伟达）；高集中度长期持有</td>
+  <td>长期稳定经营史；宽阔护城河/垄断；管理者理性诚信；财务稳健低负债高ROE；能力圈内</td>
+  <td>2003 年 23 元茅台；2012-2013 白酒塑化剂危机一股未卖且加仓</td>
+  <td>旗下 4 只十年期产品年化全部 &gt;10%、2 只 &gt;20%；茅台一役持有近 20 年超百倍</td>
+  <td><b>2008 年机械学巴菲特年度回撤 61%</b>（管理规模 33 亿→8 亿）；2021 年茅台 73 倍 PE 高位公开唱多与实操动作不一致的争议</td>
+</tr>
+<tr>
+  <td><b>张坤</b><br>（易方达）</td>
+  <td>深度价值：商业模式出色、竞争力强、资本分配对股东友好的少数公司，低换手长期持有（2022-24 换手率 29%~49%）</td>
+  <td>"拉长看股票收益率应大致相当于企业 ROE"；寻找能持续创造自由现金流的全球核心资产（腾讯/茅台/阿里）</td>
+  <td>2024-2025 明确表示"持仓估值已反映盈利大幅下滑预期，低估值+可观股东回报对长期投资者有吸引力"——<b>估值显著压缩后加仓而非追高</b></td>
+  <td>管理 13 年年化 11.69%（规模加权）；易方达优质精选任职累计 425%</td>
+  <td>蓝筹精选 2021 年高点后最大回撤 -57.9%，8 年年化仅 5.1%——<b>好公司在估值顶部买入，回报平庸且回撤深</b></td>
+</tr>
+<tr>
+  <td><b>陈光明</b><br>（睿远）</td>
+  <td>"最确定最重要的是买得便宜，其次是选到优秀公司"；逆向+安全边际；从格雷厄姆式捡烟蒂进化为"合理价格买成长"</td>
+  <td>"三高企业"：高 ROE、高现金流、高确定性；幸运的行业+能干的管理层+合理的价格</td>
+  <td>2005 市场底部重仓低估值蓝筹；2012 塑化剂恐慌加仓茅台（"恐慌砸出来的都是黄金坑"）；2015 股灾前降仓位（当年回撤仅 15%）；2024A 股极端悲观时公开表态"估值已反映极端悲观"</td>
+  <td>东方红4号 9 年 7 倍（年化约 30%）；2024 亲自管理的专户 +35.5%</td>
+  <td>睿远公募产品 2021-2024 大回撤引发赎回潮——<b>专户（3-5 年锁定）与公募（随时申赎）同策略不同结局</b>，印证"资金久期是价值投资的隐形前提"</td>
+</tr>
+<tr>
+  <td><b>李录</b><br>（喜马拉雅）</td>
+  <td>价值投资四大支柱（所有权/市场先生/安全边际/能力圈）的纯正传承；全球视野</td>
+  <td>合理价格买伟大公司；深度理解生意后重仓</td>
+  <td>2008 年前后比亚迪底部介入</td>
+  <td>比亚迪持有 15 年+数十倍；管理芒格家族资产</td>
+  <td>—（公开信息最少，客观性存疑处最多，谨慎采信）</td>
+</tr>
+</table>
+
+<div class="concl">
+<b>案例层共性提炼（六人交叉验证）：</b>
+<ul>
+  <li><b>选股同源</b>：高 ROE / 高毛利率 / 强现金流 / 护城河（垄断、品牌、网络效应）——"优质股"的判断标准高度一致，且都是<b>行业格局视角</b>而非景气度视角。</li>
+  <li><b>买入时点同源</b>：所有经典战役都发生在<b>系统性恐慌或个股黑天鹅</b>（2002 网易、2003 茅台、2008 比亚迪、2012 塑化剂、2024 极端悲观），而非估值合理时"正常买入"。</li>
+  <li><b>卖出几乎不发生</b>：换手率 7%~49%（但斌早年 7%、张坤 30-50%），"买了不卖"是复利的微观基础。</li>
+  <li><b>三种致命失败模式</b>：① 在估值顶部买好公司（张坤 2021、但斌 2021 茅台 73 倍 PE）；② 机制错配（林园无限久期策略装进可赎回私募）；③ 系统性风险不作为（但斌 2008 回撤 61%）。</li>
+</ul>
+</div>
+
+<!-- ================= Part 2 ================= -->
+<h2>二、数据实证：用本地数据库验证案例层的假设</h2>
+<p class="meta">口径统一说明：股票池=沪深 A 股非 ST 5226 只，剔除上市不满 120 日；调仓成本单边 0.15%；月度调仓=每 20 交易日；分层 Q1=因子最差 20%、Q5=最好 20%（价值因子 Q5=最便宜）。数据：daily_quote / daily_basic（tushare），factor_value（自有因子库）。</p>
+
+<h3>2.1 基线：价值因子长期有效，但纯价值有陷阱</h3>
+<table>
+<tr><th>因子</th><th>IC均值</th><th>ICIR</th><th>IC正率</th><th>Q1年化</th><th>Q5年化</th><th>多空年化</th><th>Q5夏普</th><th>Q5回撤</th></tr>
+<tr><td>EP (1/PE_ttm)</td><td class="up">5.3%</td><td>0.32</td><td>62.5%</td><td class="down">-2.8%</td><td class="up">3.8%</td><td class="up">6.8%</td><td>0.19</td><td>-37.6%</td></tr>
+<tr><td>BP (1/PB)</td><td class="up">6.7%</td><td>0.39</td><td>61.7%</td><td class="down">-4.6%</td><td class="up">7.3%</td><td class="up">12.5%</td><td>0.34</td><td>-42.1%</td></tr>
+<tr><td>DP (股息率)</td><td class="up">5.2%</td><td>0.32</td><td>63.3%</td><td class="down">-2.2%</td><td class="up">5.9%</td><td class="up">8.3%</td><td>0.30</td><td>-35.8%</td></tr>
+<tr><td>SP (1/PS_ttm)</td><td class="up">5.0%</td><td>0.33</td><td>64.8%</td><td class="down">-3.3%</td><td class="up">6.9%</td><td class="up">10.5%</td><td>0.31</td><td>-40.6%</td></tr>
+<tr><td><b>ROE（单因子）</b></td><td class="down">0.5%</td><td>0.04</td><td>50.0%</td><td class="up">3.4%</td><td>1.1%</td><td class="down">-2.2%</td><td>0.05</td><td>-43.0%</td></tr>
+<tr><td>value4（四价值等权）</td><td class="up">6.4%</td><td>0.33</td><td>64.1%</td><td class="down">-4.9%</td><td class="up">6.1%</td><td class="up">11.6%</td><td>0.30</td><td>-37.4%</td></tr>
+</table>
+<p class="src">来源：本地 scripts/value_factor_eval.py，2016-01~2026-09，129 个月度调仓期。</p>
+
+<div class="note warn"><b>价值陷阱（关键细节）</b>：value4 五层年化依次为 Q1 -4.9% → Q2 1.1% → Q3 5.3% → <b>Q4 6.5% → Q5 6.1%</b>。最便宜的 20% 并不比次便宜的 20% 好——最便宜的一档混入了大量"便宜有理由"的衰落公司。这与格雷厄姆式烟蒂在 A 股失灵、陈光明"从找便宜货进化到找好公司"的自述完全一致。另外风格周期化显著：value4 样本内(2016-2022) 年化仅 3.1%，样本外(2023-2026) 11.5%。</div>
+
+<h3>2.2 选股实验：质量门限 + 价值排序 vs 单独使用</h3>
+<p>模拟"主动选股"形态：每月取各分数排名 <b>Top50 等权</b>（贴近主动基金持股集中度），非分层宽组合。</p>
+<table>
+<tr><th>组合（Top50 等权，月度调仓）</th><th>年化</th><th>夏普</th><th>最大回撤</th><th>十年累计</th></tr>
+<tr><td>纯价值（value4 分数最高 50 只）</td><td class="up">5.8%</td><td>0.31</td><td class="down">-29.4%</td><td>+82%</td></tr>
+<tr><td><b>纯质量（ROE 最高 50 只）</b></td><td class="down">-3.8%</td><td>-0.16</td><td class="down">-64.3%</td><td class="down">-34%</td></tr>
+<tr><td><b>双门限（价值前40% ∩ ROE前40%，门内综合分取 Top50）</b></td><td class="up">6.3%</td><td><b>0.36</b></td><td class="down">-29.3%</td><td>+91%</td></tr>
+<tr><td>基准：沪深300 同期</td><td>3.0%</td><td>0.16</td><td>-45.6%</td><td>+37%</td></tr>
+</table>
+<p class="src">来源：本地 scripts/value_path_test.py 模块 A，2016-01~2026-09。双门限=先剔除非优质（ROE 截面后 60%），再在优质内按价值+质量综合分排序。</p>
+
+<div class="concl">
+<b>三个直接推论：</b>
+<ul>
+<li><b>"买最优质"在 A 股是负收益策略</b>：2016 年初起每月买 ROE 最高的 50 只，十年 -34%。ROE 是后视指标——当时最优质的 50 只集中在白酒/家电/医药白马，恰是 2021 年估值崩塌的主体（"白马还债"）。这解释了 ROE 单因子 IC≈0：截面排序上 ROE 对未来 1 个月收益没有预测力。</li>
+<li><b>质量的正确用法是"门限"而非"排序"</b>：双门限组合把最便宜 20% 里的烂公司过滤掉，夏普升到 0.36（全组合最高），年化 6.3% 超过纯价值 5.8%——修复了 2.1 的价值陷阱。</li>
+<li><b>三个组合回撤（-29%）全部优于沪深300（-45.6%）</b>：价值+质量组合的防御性来自低估值，与案例层"便宜是最大的风控"（陈光明）互证。</li>
+</ul>
+</div>
+
+<h3>2.3 买入时点实验：什么时候入手</h3>
+
+<p><b>实验 B1（个股层面）</b>：每季度末，将每只股票当前 BP 与其自身过去 3 年（750 交易日）的历史比较，得"对自身便宜程度"分位，分 5 组看未来一年收益（2019 起 31 个采样期平均）：</p>
+<div id="chartB1" class="chart"></div>
+<p class="src">来源：scripts/value_path_test.py 模块 B1。Q1=对自身历史最贵，Q5=最便宜。口径：截面全 A 非停牌且数据≥3 年样本。</p>
+
+<p>结果：<b>最贵时买（Q1）未来一年 13.3% 是全组最差</b>；但"最便宜"（Q5 16.7%）也并非最好（Q4 18.8%）——跌得最惨的 20% 里混有基本面恶化股。个股层面的估值择时是<b>不对称的弱效应</b>：贵的时点明确吃亏，便宜的时点有条件占优。</p>
+
+<p><b>实验 B3（优质股内部）</b>：在高 ROE 组（前 30%）内部再按自身 PB 分位分组——便宜时买 12.7% vs 贵时买 12.1%。<b>差距仅 0.6pp</b>。对优质公司，"等回调再买"的收益增量非常有限，容易错过（与林园"满仓在场"、段永平"错过就错过"的实践一致）。</p>
+
+<p><b>实验 B2（市场层面）</b>：全市场 PB 中位数对自身 5 年滚动历史取分位，观察该时点买入沪深300 并持有 1 年的收益：</p>
+<div id="chartB2" class="chart"></div>
+<p class="src">来源：scripts/value_path_test.py 模块 B2。采样：2019 起季度末，低分位 9 期 / 中分位 11 期 / 高分位 2 期。</p>
+
+<p>结果：<b>市场整体便宜时买入，未来一年平均 +14.0%（胜率 78%）；估值中位或偏高时买入，平均 -5.5%</b>。市场层面的估值分位对中期回报有强的条件预测力——这正是案例层所有经典买入（2003/2008/2012/2024 恐慌底部）的共同背景：个人恐慌叠加市场整体低估值。</p>
+
+<p><b>择时组合验证</b>：将双门限 Top50 组合按市场 PB 分位调仓位（低分位满仓 / 中 60% / 高 30%）：</p>
+<table>
+<tr><th></th><th>年化</th><th>夏普</th><th>最大回撤</th></tr>
+<tr><td>满仓双门限 Top50</td><td class="up">6.3%</td><td>0.36</td><td class="down">-29.3%</td></tr>
+<tr><td>分位仓位版（低满/中60/高30）</td><td>3.4%</td><td>0.28</td><td class="down">-20.7%</td></tr>
+</table>
+<p class="src">来源：scripts/value_path_test.py。择时规则为事前设定的简单三分位，无参数调优。</p>
+
+<div class="note warn"><b>诚实呈现的反直觉结果</b>：粗糙的分位-仓位线性规则<b>牺牲了近一半收益</b>（2019-2021 估值中枢上移段长期处于 60% 仓位，错过反弹），只换来 8.6pp 回撤改善。含义：估值择时的信号方向是对的（B2），但执行上应该是<b>低频、宽阈值、区间化</b>（例如只在极端分位 &lt;15% / &gt;85% 时大幅加减），而不是线性跟随。这与本仓库 2026-09-10 择时层四重否决的结论一致：任何精细择时都是负贡献。</div>
+
+<h3>2.4 长期持有实验：买对价格，拿住不动</h3>
+
+<p><b>实验 C1（调仓频率）</b>：同一双门限选股，月度调仓 6.3% vs 年度调仓 5.6%——长期持有几乎不损失收益（差 0.7pp，且交易成本大降）。<b>选股正确的前提下，"不动"是免费的</b>。</p>
+
+<p><b>实验 C2（收益率 vs ROE）</b>：2016-01-04 买入当时 ROE 最高的 50 只等权，持有 10.7 年不调仓：</p>
+<div id="chartC2" class="chart"></div>
+<table>
+<tr><th></th><th>数值</th></tr>
+<tr><td>组合年化收益（2016-01 ~ 2026-09，不调仓）</td><td class="up">5.2%（累计 +70%）</td></tr>
+<tr><td>期间组合平均年化 ROE（单季中位×4 近似）</td><td>11.3%</td></tr>
+<tr><td>组合最大回撤</td><td class="down">-41.4%</td></tr>
+<tr><td>同期沪深300 年化</td><td>3.0%</td></tr>
+</table>
+<p class="src">来源：scripts/value_path_test.py 模块 C2。ROE 口径：factor_value.roe_lf 为最新财报单季未年化值，×4 近似年化；持有期含 2016 熔断、2018 熊市、2021-2024 白马还债全程。</p>
+
+<div class="concl"><b>核心发现：长期收益率 ≈ ROE 的一半。</b> 张坤的"股票长期收益率应大致相当于企业 ROE"在 A 股被打了对折——2016 年初是上一轮牛市顶部，优质股组合从高估值起点出发，十年只兑现了 ROE 的一半（另一半被估值回归吃掉）。对照组：林园/但斌 2003 年熊市底部买茅台、段永平 2002 年恐慌期买网易，起点估值极低，ROE 之上还叠加了估值扩张。<b>同样的公司、同样的持有，买入时点的市场估值状态决定你拿走 ROE 的几成。</b></div>
+
+<!-- ================= Part 3 ================= -->
+<h2>三、推理：A 股价值投资的合理路径与方法论</h2>
+
+<p>综合案例层（六人共性）与数据层（六组实验），给出可执行的路径。每一条都标注数据支撑。</p>
+
+<h3>路径总览（五层漏斗）</h3>
+<table>
+<tr><th>层</th><th>做什么</th><th>怎么做（量化锚）</th><th>数据支撑</th></tr>
+<tr><td><b>1. 市场仓位层</b><br>（什么时候入市）</td><td>用全市场估值分位决定权益仓位区间</td><td>全 A PB 中位数 5 年滚动分位：&lt;30% 视为便宜区可满配；30-70% 标配；&gt;70% 收缩。宽阈值、低频调整（季度），不做线性跟随</td><td>B2：低分位买入未来一年 +14.0%/胜率 78% vs 中分位 -5.5%；择时组合教训：线性规则牺牲 2.9pp 年化</td></tr>
+<tr><td><b>2. 质量门限层</b><br>（发现优质股）</td><td>先用质量指标剔除"便宜有理由"的衰落公司</td><td>硬指标：ROE 连续多年 &gt;15%（林园/但斌口径 10-20%+）、毛利率稳定趋升、经营现金流&gt;净利润、低负债；软指标：垄断/成瘾/品牌（定性，案例层六人共识）</td><td>ROE 单因子 IC 0.5% 无预测力，但双门限组合夏普 0.36 全场最优、修复 Q4&gt;Q5 价值陷阱</td></tr>
+<tr><td><b>3. 价值排序层</b><br>（好公司里挑便宜的）</td><td>在通过质量门限的池内按估值排序选股</td><td>EP/BP/DP/SP 多因子等权（value4 IC 6.4%，多空 11.6%）；可叠加自身估值分位（B1：贵的时点明确吃亏）；Top 集中持有（Top50 等权即可，无需 1000 只）</td><td>A：双门限 Top50 年化 6.3% vs 纯价值 5.8% vs 纯质量 -3.8%；回撤 -29.3% vs 沪深300 -45.6%</td></tr>
+<tr><td><b>4. 持有纪律层</b><br>（拿多久）</td><td>低换手长期持有 + 年度再平衡</td><td>年度再平衡即可（C1：6.3% vs 5.6%）；除三种卖出：基本面恶化（毛利率/ROE 塌陷）、严重高估（自身估值分位&gt;90%）、发现更好标的（段永平口径）</td><td>C1 调仓频率实验；案例层换手率 7%~49%</td></tr>
+<tr><td><b>5. 事件加仓层</b><br>（超额来源）</td><td>系统性恐慌/个股黑天鹅时加仓而非逃跑</td><td>触发条件：市场估值分位进入极端区间 + 指数级利空（如 2008/2012 塑化剂/2024 极端悲观）；操作：把仓位层从标配提到满配</td><td>全部经典案例（网易/茅台/比亚迪）都在此完成建仓；B2 低分位 +14% 的胜率支撑</td></tr>
+</table>
+
+<h3>方法论要点展开</h3>
+
+<p><b>1）价值投资在 A 股成立的机制，是"估值回归 + 企业盈利"双引擎，不是"和时间做朋友"的单一引擎。</b></p>
+<ul>
+<li>价值四因子 IC 5-6.7% 且十年样本外增强（3.1%→11.5%），说明 A 股散户化定价错误长期存在且未收敛——这是超额收益的来源。</li>
+<li>但纯价值有陷阱（Q4&gt;Q5）、纯质量是陷阱（-3.8%），<b>必须"便宜 ∩ 优质"同时成立</b>，这正是芒格"用合理价格买伟大公司"的量化对应物。</li>
+</ul>
+
+<p><b>2）"什么时候入手"的答案分两级：对公司宽容、对市场严格。</b></p>
+<ul>
+<li>对个股：优质股内部等回调的收益增量仅 0.6pp（B3），但"贵的时候买"明确吃亏（B1 Q1 最差）。实操含义——发现优质公司估值合理即可建仓，只在明显高估（自身分位 &gt;90%）时等待。</li>
+<li>对市场：整体估值分位决定中期胜负（+14% vs -5.5%），但执行要宽阈值低频，否则像择时组合一样把 6.3% 做成 3.4%。</li>
+</ul>
+
+<p><b>3）资金久期是一切的前提（案例层的隐藏变量）。</b></p>
+<ul>
+<li>林园（自有资金 37 年百倍）与林园私募（2025 唯一亏损、169 只产品停申）是同一策略的两种结局；睿远专户（+35.5%）与公募（回撤引发赎回潮）同理。</li>
+<li>C2 显示优质组合路径上有 -41.4% 的回撤、且 2021-2024 连续三年跑输——<b>无法承受这个过程的资金，无论方法多正确都拿不到终值</b>。段永平"不借钱"铁律的量化含义即在此。</li>
+</ul>
+
+<p><b>4）与现有量化体系的衔接。</b></p>
+<ul>
+<li>本结论与仓库已有体系兼容：value4 与 prod_lgbm_neu（lgbm_score）等价于把上述第 2+3 层自动化；建议将"质量门限（ROE 分位 + 现金流过滤）+ 价值排序"作为下一个因子实验方向——本次实验显示双门限相对纯价值4 提升 +0.5pp 年化 / +0.05 夏普，但用更严格的质量定义（连续 ROE、毛利率趋势、现金流质量）可能进一步拉开差距。</li>
+<li>市场估值分位（全 A PB 中位数 5 年滚动分位）可作为 crowding_monitor 之外的第二个监控维度，接入飞书推送（极端分位提醒）。</li>
+</ul>
+
+<h3>诚实的局限声明</h3>
+<ul>
+<li>实证区间 2016-2026 恰含一轮完整牛熊（2016-2018 熊、2019-2021 结构牛、2022-2024 出清、2025-2026 风格切换），但只有 10 年、一个市场；价值因子的风格周期性（样本内外 3.1% vs 11.5%）意味着任何 3-5 年窗口的结论都不稳定。</li>
+<li>B2 的高/低分位样本分别只有 2/9 期，统计功效弱，只能作方向参考。</li>
+<li>案例业绩数字全部来自公开报道（非一手），存在幸存者偏差——入选者本身就是"活下来的人"；雪球对但斌的复盘明确指出这一点。</li>
+<li>ROE 质量口径为单季 roe_lf，未年化精确处理、未剔除金融股特殊报表结构；毛利率/现金流质量门限尚未量化实证（下一步工作）。</li>
+</ul>
+
+<div class="disclaimer">
+<b>免责声明</b>：以上内容基于公开数据和量化分析，仅供参考，不构成投资建议。市场有风险，投资需谨慎。任何投资决策应结合个人风险承受能力、资金状况和投资目标独立判断，必要时咨询持牌专业机构。过往表现不预示未来收益。
+</div>
+
+</div>
+
+<script>
+var c1 = echarts.init(document.getElementById('chartB1'));
+c1.setOption({
+  tooltip: { trigger: 'axis' },
+  grid: { left: 60, right: 30 },
+  xAxis: { type: 'category', data: ['Q1\n(对自身最贵)', 'Q2', 'Q3', 'Q4', 'Q5\n(对自身最便宜)'] },
+  yAxis: { type: 'value', name: '未来1年平均收益(%)', axisLabel: { formatter: '{value}%' } },
+  series: [{
+    type: 'bar', barWidth: '50%',
+    data: [
+      { value: 13.3, itemStyle: { color: '#1e8449' } },
+      { value: 15.0, itemStyle: { color: '#7fb3d5' } },
+      { value: 18.2, itemStyle: { color: '#7fb3d5' } },
+      { value: 18.8, itemStyle: { color: '#c0392b' } },
+      { value: 16.7, itemStyle: { color: '#c0392b' } }
+    ],
+    label: { show: true, position: 'top', formatter: '{c}%' }
+  }]
+});
+
+var c2 = echarts.init(document.getElementById('chartB2'));
+c2.setOption({
+  tooltip: { trigger: 'axis' },
+  grid: { left: 60, right: 60 },
+  xAxis: { type: 'category', data: ['低分位(<30%)\n9期', '中分位(30-70%)\n11期', '高分位(>70%)\n2期'] },
+  yAxis: [
+    { type: 'value', name: '未来1年平均收益(%)', axisLabel: { formatter: '{value}%' } },
+    { type: 'value', name: '胜率(%)', axisLabel: { formatter: '{value}%' }, max: 100 }
+  ],
+  series: [
+    { type: 'bar', barWidth: '45%',
+      data: [
+        { value: 14.0, itemStyle: { color: '#c0392b' } },
+        { value: -5.5, itemStyle: { color: '#1e8449' } },
+        { value: -5.3, itemStyle: { color: '#1e8449' } }
+      ],
+      label: { show: true, position: 'top', formatter: '{c}%' }
+    },
+    { type: 'line', yAxisIndex: 1, data: [78, 27, 50], name: '胜率',
+      label: { show: true, position: 'top', formatter: '{c}%' } }
+  ]
+});
+
+var c3 = echarts.init(document.getElementById('chartC2'));
+c3.setOption({
+  tooltip: { trigger: 'axis' },
+  grid: { left: 60, right: 30 },
+  xAxis: { type: 'category', data: ['组合10.7年年化收益', '组合平均年化ROE', '同期沪深300年化'] },
+  yAxis: { type: 'value', name: '年化(%)', axisLabel: { formatter: '{value}%' } },
+  series: [{
+    type: 'bar', barWidth: '45%',
+    data: [
+      { value: 5.2, itemStyle: { color: '#7fb3d5' } },
+      { value: 11.3, itemStyle: { color: '#c0392b' } },
+      { value: 3.0, itemStyle: { color: '#95a5a6' } }
+    ],
+    label: { show: true, position: 'top', formatter: '{c}%' }
+  }]
+});
+
+window.addEventListener('resize', function () { c1.resize(); c2.resize(); c3.resize(); });
+</script>
+</body>
+</html>

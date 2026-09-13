@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>截面 Alpha × 时序择时：分进与合击</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; background: #f7f7f4; color: #2c2c2a; margin: 0; line-height: 1.8; font-size: 14px; }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 36px 30px 64px; }
+  h1 { font-size: 23px; font-weight: 600; margin: 0 0 6px; color: #26215C; }
+  .meta { color: #888780; font-size: 12.5px; margin-bottom: 28px; }
+  h2 { font-size: 17.5px; font-weight: 600; color: #26215C; border-left: 4px solid #185FA5; padding-left: 12px; margin: 52px 0 18px; }
+  h3 { font-size: 15px; font-weight: 600; color: #0C447C; margin: 30px 0 10px; }
+  p { margin: 10px 0; }
+  .cards { display: flex; gap: 14px; flex-wrap: wrap; }
+  .card { flex: 1; min-width: 280px; background: #fff; border: 1px solid #e3e1d8; border-radius: 12px; padding: 16px 18px 14px; }
+  .card .tag { display: inline-block; font-size: 11px; font-weight: 600; color: #fff; background: #185FA5; border-radius: 4px; padding: 1px 8px; margin-bottom: 8px; }
+  .card.b .tag { background: #0F6E56; }
+  .card.c .tag { background: #854F0B; }
+  .card .t { font-weight: 600; font-size: 14px; margin-bottom: 6px; }
+  .card p { font-size: 12.5px; color: #5F5E5A; margin: 4px 0; line-height: 1.7; }
+  .panel { background: #fff; border: 1px solid #e3e1d8; border-radius: 12px; padding: 20px 24px; margin: 18px 0; }
+  table { width: 100%; border-collapse: collapse; background: #fff; font-size: 12.5px; margin: 12px 0; }
+  th { background: #f1efe8; color: #444441; font-weight: 600; padding: 8px 10px; text-align: left; border: 1px solid #e3e1d8; }
+  td { padding: 8px 10px; border: 1px solid #e3e1d8; vertical-align: top; }
+  tr:nth-child(even) td { background: #fafaf6; }
+  .src { font-size: 11px; color: #888780; margin-top: 6px; }
+  .case { border-left: 3px solid #85B7EB; }
+  .case.neg { border-left-color: #F0997B; }
+  .case .no { font-size: 11px; font-weight: 600; color: #185FA5; }
+  .case.neg .no { color: #993C1D; }
+  .formula { background: #f1efe8; border-radius: 8px; padding: 10px 16px; text-align: center; font-size: 15px; font-weight: 600; color: #26215C; margin: 14px 0; }
+  .arch { display: flex; align-items: stretch; gap: 10px; flex-wrap: wrap; margin: 16px 0; }
+  .arch .stage { flex: 1; min-width: 130px; background: #E6F1FB; border: 1px solid #85B7EB; border-radius: 10px; padding: 12px 10px; text-align: center; }
+  .arch .stage .h { font-weight: 600; font-size: 13px; color: #0C447C; }
+  .arch .stage .d { font-size: 11.5px; color: #185FA5; margin-top: 4px; line-height: 1.6; }
+  .arch .arrow { display: flex; align-items: center; color: #888780; font-size: 18px; }
+  .arch .stage.teal { background: #E1F5EE; border-color: #5DCAA5; }
+  .arch .stage.teal .h { color: #085041; }
+  .arch .stage.teal .d { color: #0F6E56; }
+  .arch .stage.amber { background: #FAEEDA; border-color: #FAC775; }
+  .arch .stage.amber .h { color: #633806; }
+  .arch .stage.amber .d { color: #854F0B; }
+  .verdict { background: #FAEEDA; border: 1px solid #EF9F27; border-radius: 12px; padding: 16px 20px; margin: 18px 0; font-size: 13.5px; }
+  .verdict .h { font-weight: 600; color: #412402; margin-bottom: 6px; }
+  .chart { width: 100%; height: 380px; }
+  .kbox { display: flex; flex-wrap: wrap; gap: 12px; margin: 14px 0; }
+  .kbox .k { flex: 1; min-width: 220px; background: #fff; border: 1px solid #e3e1d8; border-radius: 10px; padding: 12px 14px; }
+  .kbox .k .n { font-size: 11px; color: #888780; }
+  .kbox .k .v { font-size: 19px; font-weight: 600; }
+  .kbox .k .s { font-size: 11px; color: #888780; }
+  .pos { color: #A32D2D; }
+  .neg { color: #3B6D11; }
+  .disclaim { margin-top: 48px; padding: 14px 18px; background: #f1efe8; border-radius: 10px; font-size: 11.5px; color: #5F5E5A; line-height: 1.7; }
+  li { margin: 6px 0; }
+  ul { padding-left: 22px; margin: 8px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>截面 Alpha × 时序择时：分进与合击</h1>
+<p class="meta">量化两条路线的理论推演、案例复盘与路线建议 · 2026-09-08 · 结合 stock_data 项目体系（21 因子库 / 6 因子生产组合 / 双引擎回测框架）· 案例数据均已标注来源，标注"需核实原文"处为二手引用</p>
+
+<div class="cards">
+  <div class="card">
+    <span class="tag">分进 · A</span>
+    <div class="t">截面 alpha：靠广度吃饭，不靠预测准</div>
+    <p>机构量化的绝对主流。收益引擎是 IR = IC × √BR 里的 BR（下注次数），进化只有两条路：提 IC（更好的模型）或提频率，两者边际递减。终极约束是容量与拥挤——最成功的机构最终被自己的规模杀死超额。</p>
+  </div>
+  <div class="card b">
+    <span class="tag">分进 · B</span>
+    <div class="t">时序择时：机构版成立，散户版锁死</div>
+    <p>机构 CTA 靠"多品种 × 多频率"补广度成立，且带危机 alpha（2008 年 SG Trend +20.9% vs MSCI ACWI −42.2%）。少数标的版 BR 仅数十，IR 数学锁死在 0.2 量级——只能做风险管理层，做不了主引擎。</p>
+  </div>
+  <div class="card c">
+    <span class="tag">合击 · A×B</span>
+    <div class="t">alpha 层选股 + beta 层管仓位</div>
+    <p>标准形态：alpha 层满负荷跑截面组合，beta 层做"风险管理式择时"（vol-targeting / ERP 极值分档 / 趋势过滤）。学术（Moreira &amp; Muir 2017）与机构实务（AQR 双产品线、国内量化双线私募）双重支撑。方向预测式择时与因子内择时是被反复证伪的两个方向。</p>
+  </div>
+</div>
+
+<h2>一、路线 A 单独走：截面 alpha 的理论推演与案例</h2>
+
+<h3>1.1 理论推演：收益引擎与进化路径</h3>
+
+<div class="panel">
+<div class="arch">
+  <div class="stage"><div class="h">数据层</div><div class="d">全市场行情 + 基本面<br>（你的 daily_quote / fundamental）</div></div>
+  <div class="arrow">→</div>
+  <div class="stage"><div class="h">预测器</div><div class="d">因子 / 模型<br>输出：排序，不是方向</div></div>
+  <div class="arrow">→</div>
+  <div class="stage"><div class="h">组合器</div><div class="d">优化器<br>alpha − 风险惩罚 − 成本</div></div>
+  <div class="arrow">→</div>
+  <div class="stage"><div class="h">执行器</div><div class="d">换手与冲击成本控制</div></div>
+  <div class="arrow">→</div>
+  <div class="stage teal"><div class="h">净值</div><div class="d">高夏普 · 浅回撤<br>尾部 = 因子集体失效</div></div>
+</div>
+</div>
+
+<p>核心数学是 Grinold 主动管理基本定律：</p>
+<div class="formula">IR = IC × √BR</div>
+
+<p>这条公式的哲学：<b>截面量化不需要"看得准"，只需要"看得比随机好一点点"（IC 3~5%），然后下足够多的注</b>。全市场月度截面、相关性折算后每年数千个有效独立注，把微弱的优势通过大数定律稳定兑现。由此推出 A 的全部性格：</p>
+
+<ul>
+<li><b>进化路径只有两条，且都边际递减</b>——提 IC：线性因子（Fama-French 1993）→ 统计学习 → 深度学习截面（2015 后），每一步增量更小、新信号衰减更快；提 BR：月度 → 周度 → 日内，频率越高容量越小、成本占比越高。</li>
+<li><b>规模-收益跷跷板是宿命</b>——alpha 相对基准是零和的，策略规模越大，信号自我交易越严重，超额衰减越快。</li>
+<li><b>净值形态</b>——高夏普、浅回撤是常态；尾部风险只有一个来源：风格急切换 + 拥挤踩踏同时发生（因子集体失效）。</li>
+</ul>
+
+<h3>1.2 案例复盘</h3>
+
+<div class="panel case">
+<p class="no">案例 1 · Renaissance Medallion —— 把 Grinold 定律推到极限</p>
+<p><b>事实</b>：1988–2018 年化毛收益 66%、费后 39%；1989–2005 十七年间仅 1989 一年亏损（来源：Zuckerman《The Man Who Solved the Market》2019）。Robert Mercer 曾称其数百万笔交易的胜率只有 <b>50.75%</b>——"这样也能赚几十亿"。持仓周期 1.5 天到 1.5 周，同时持有数千个多空头寸。</p>
+<p><b>分析</b>：这是 IR = IC × √BR 的极限形态。单笔预测优势小到几乎不可见（胜率边缘仅 0.75 个百分点），但 BR = 每年数十万笔交易，√BR 把它放大成 66%。<b>广度压倒精度的极端证明</b>。它同样证明了另一面：高频容量极小，Medallion 1993 年起对外封闭、2005 年清退全部外部投资者。对照同公司的对外产品 RIEF（更大容量的中频版本）：2020 年两者差距 17–19 个百分点（来源：Institutional Investor 2020）——同一家公司、同一套基因，<b>容量换收益，跷跷板立竿见影</b>。</p>
+</div>
+
+<div class="panel case">
+<p class="no">案例 2 · AQR —— 因子分散化的能与不能</p>
+<p><b>事实</b>：1998 年 Fama 弟子 Cliff Asness 创立，将 value / momentum / carry / defensive 打包为多因子平台，成长为全球最大量化机构之一（峰值管理规模两千亿美元量级，据公开报道，需核实精确数字）。2018–2020 连续三年跑输、遭遇大额赎回，2021 年反弹。</p>
+<p><b>分析</b>：五个低相关因子的分散挡住了<b>单一因子失效</b>，但挡不住<b>宏观 regime 一次性打压全部因子</b>——2018–2020 是价值因子的全球性坟场，动量与套利也间歇失效。A 的分散化在因子层有效，在"因子层的系统性风险"面前无效。对你的映射：6 因子等权组合排除高冗余技术因子（MACD/RSI 等与 ret_20d_rev/ivol_60 相关 0.6+）是对的，但风格 regime 切换仍是组合的最大尾部——这正是你 crowding_monitor 存在的意义。</p>
+</div>
+
+<div class="panel case">
+<p class="no">案例 3 · 幻方量化 —— 容量的自我吞噬</p>
+<p><b>事实</b>：2015 年后以深度学习截面预测崛起，A 股指增顶级超额；2021 年成为国内首家管理规模千亿级（人民币）量化私募；随后主动封盘缩减规模，2023 年后重心转向 AGI（DeepSeek）。（据公开报道）</p>
+<p><b>分析</b>：IC 领先（深度学习）+ BR 领先（高频执行）也抵不过千亿规模的冲击成本。<b>A 路线最成功的国内机构，最终被自己的规模杀死超额</b>——这不是执行问题，是范式的结构性约束。</p>
+</div>
+
+<div class="verdict">
+<div class="h">路线 A 小结：三条定律</div>
+① 广度压倒精度（Medallion）；② 因子分散挡不住 regime 切换（AQR）；③ 容量是终极约束（幻方）。走 A 的正确姿势：把 BR 做满、把因子冗余控住、把拥挤度监控当生命线、把规模当敌人而非目标。
+</div>
+
+<h2>二、路线 B 单独走：时序择时的理论推演与案例</h2>
+
+<h3>2.1 理论推演：正偏分布与广度补丁</h3>
+
+<p><b>经济学基础</b>：时序动量的存在性来自行为与结构两个层面——锚定效应、处置效应（赢家卖太早、输家抱太久）、信息扩散缓慢、羊群效应，使价格趋势具有持续性。Moskowitz, Ooi &amp; Pedersen（2012, JFE）在 58 个品种（股指/商品/外汇/债券）上系统验证了时序动量的显著性。</p>
+
+<p><b>收益形态</b>：胜率低（35~45%）、单笔亏损有限（止损纪律）、趋势兑现时大赚——<b>正偏分布</b>。Fung &amp; Hsieh 的经典结论：趋势跟踪的收益形态近似<b>做多跨式期权（long straddle）</b>，天然带"危机 alpha"——急跌时趋势策略往往早已持空或离场，与股票呈尾部负相关。</p>
+
+<p><b>数学约束</b>：BR = 标的数 × 信号频率。机构的解法是<b>品种工厂</b>（50~100+ 期货品种）× 频率分层（1M/3M/12M 信号池）。看清这一点会发现：B 成立的形态与 A 同构——<b>都是信号工厂，只是 A 的工厂开在截面上，B 的工厂开在品种上</b>。而"少数标的择时"没有工厂，BR 只有几十，IR 锁死在 0.2 量级：无法作为主策略，只能做卫星或风险管理层。</p>
+
+<h3>2.2 案例复盘</h3>
+
+<div class="panel case">
+<p class="no">案例 4 · SG Trend Index —— 危机 alpha 的实证（含 B 的死法）</p>
+<table>
+<tr><th>时期</th><th>SG Trend Index</th><th>对照（MSCI ACWI）</th><th>环境</th></tr>
+<tr><td>2008 金融危机</td><td class="pos"><b>+20.9%</b></td><td class="neg">−42.2%</td><td>持续单边急跌，趋势早已持空</td></tr>
+<tr><td>2022 股债双杀</td><td class="pos"><b>+27.4%</b></td><td class="neg">−18.4%</td><td>股债同跌，趋势双做空</td></tr>
+<tr><td>2024.5–2025.5</td><td class="neg"><b>−20.4%</b></td><td class="pos">+18.3%</td><td>震荡 + 急反转（如 2025.4 关税冲击 V 型反转），反复打脸</td></tr>
+</table>
+<p class="src">来源：Cambridge Associates（2025）引 SG Trend Index 与 MSCI ACWI 数据</p>
+<p><b>分析</b>：同一套趋势逻辑，2008/2022 大放异彩、2024–2025 遭遇 2000 年以来第二大回撤——<b>B 的生法与死法来自同一个机制</b>：持续单边趋势喂出来的收益，在无趋势环境里原样吐回去。自 2000 年以来该指数经历 16 次 &gt;10% 的回撤，平均每 18~24 个月一次，多数在随后 12 个月内收复（同上来源）。这决定了 B 的正确考核方式：不按胜率、不按年度收益，按<b>长期正偏 + 尾部对冲价值</b>。</p>
+</div>
+
+<div id="chart1" class="chart"></div>
+<p class="src">SG Trend Index vs S&amp;P 500（TR）年度收益，2000–2014。来源：PIMCO《Hedging for Profit》（2017）引 SG/S&amp;P 数据；2000–2016 全样本两者年化收益相近（约 6%），但年度相关性仅 0.43，2002 与 2008 的互补尤其显著。</p>
+
+<div class="panel case">
+<p class="no">案例 5 · 桥水 Pure Alpha —— 方向预测型 B 的天花板</p>
+<p><b>事实</b>：2008 年 Pure Alpha 费后 +9.5%，当年标普 500 −37%；约 30 年历史仅 4 年亏损（来源：中国证券报 2012、Barron's 等公开报道）。但 2012–2019 年收益率分别为 0.79% / 5.22% / 3.53% / 4.67% / 2.36% / 0.81% / 14.55% / −0.58%（来源：中证网 2020）——<b>八年平庸</b>。2020 年 3 月疫情冲击中据媒体报道亏损约 20%，Dalio 公开承认"本该像 2008 那样赚钱，而非赔钱"（来源：证券时报 2020）。</p>
+<p><b>分析</b>：即便宏观择时的世界顶级玩家，"持续预测对方向"也极难。2008 的辉煌来自对去杠杆机制的深刻理解（做多美债/黄金、做空美元）；但宏观 regime 平淡期信号稀疏，收益平庸；2020 年行情太快，仓位来不及调整。<b>方向预测型 B 的爆发力依赖罕见的宏观大行情，平时是成本项</b>。</p>
+</div>
+
+<div class="panel case neg">
+<p class="no">案例 6 · 反例：散户指标择时 —— 机构世界为什么没有这个品类</p>
+<p>A 股三十余年，从未出现过靠"少数标的 + 技术指标择时"做成持续机构品类的先例。原因不是没人试，而是数学不允许：BR 数十 → IR 天花板 0.2 → 扣除成本后无持续超额可讲。所有"样本内胜率 70%"的择时模型都倒在样本外——样本只有几十个信号，参数怎么调都"有效"。<b>技术分析在机构端的唯一存在形态是"多品种系统化趋势"（CTA），从来不是"单标的神奇指标"</b>。</p>
+</div>
+
+<div class="verdict">
+<div class="h">路线 B 小结：成立的三要素与固有死法</div>
+成立三要素：品种广度（几十个起步）、频率分层（多周期信号池）、风险目标化（vol-targeting）。固有死法：震荡市 whipsaw（SG Trend 2024–2025 的 −20.4% 是最新实证）。缺广度的 B 不是弱化版的 B，是被数学锁死的 B。
+</div>
+
+<h2>三、合击：A × B 的正确叠加方式</h2>
+
+<h3>3.1 结构：两层职责分离</h3>
+
+<div class="panel">
+<div class="arch">
+  <div class="stage teal"><div class="h">择时层 g(t)</div><div class="d">管"买多少"<br>vol-targeting · ERP 分档 · 趋势过滤</div></div>
+  <div class="arrow">×</div>
+  <div class="stage"><div class="h">Alpha 层</div><div class="d">管"买什么"<br>6 因子截面组合（排序 → 权重）</div></div>
+  <div class="arrow">→</div>
+  <div class="stage amber"><div class="h">总组合</div><div class="d">收益 = g(t) × α + (1−g(t)) × 现金<br>日常低相关 · 尾部互补</div></div>
+</div>
+<p style="font-size:12.5px;color:#5F5E5A;margin-top:10px;">模块层分离、组合层叠加——这正是 AQR 双产品线（股票市场中性 + 管理期货）与国内头部量化"中性 + CTA"双线（黑翼、明汯等，据公开报道）的通用形态：<b>机构从不在信号层杂交 A 和 B</b>。</p>
+</div>
+
+<h3>3.2 理论推演：为什么是"风险管理式"而非"方向预测式"</h3>
+
+<p>合击的关键不是"加一个预测大盘的信号"，而是选择哪种择时。证据链指向非常明确：</p>
+<ul>
+<li><b>Moreira &amp; Muir（2017, Journal of Finance, "Volatility-Managed Portfolios"）</b>：对市场、动量、价值等组合按波动率倒数缩放仓位，夏普比率显著提升——<b>不预测方向、只管理波动的择时，是少数被顶刊验证有效的形态</b>。</li>
+<li><b>Barroso &amp; Santa-Clara（2015, JFE, "Momentum has its moments"）</b>：动量策略的崩盘风险几乎全部集中于高波动期，简单的 vol-scaling 即可消除大部分崩盘——<b>择时的正确用法是管理风险敞口，不是预测涨跌</b>。</li>
+<li><b>AQR 系列研究</b>（Asness 等，"Contrarian Factor Timing is Deceptively Difficult"，需核实原文）：因子层面的估值择时极其困难，仅在极端估值区分档有效——<b>择时用在 beta 层，别用在因子层</b>。</li>
+<li><b>Fung &amp; Hsieh + SG Trend 实证</b>：趋势类信号叠加进组合的价值主要在尾部对冲（2008/2022 型情景），不在平均收益。</li>
+</ul>
+
+<h3>3.3 案例：2008 年危机四象对比</h3>
+
+<div id="chart2" class="chart" style="height:360px;"></div>
+<p class="src">2008 年各策略实际表现。来源：MSCI ACWI 与 SG Trend Index（Cambridge Associates 2025）；S&amp;P 500 TR（PIMCO 2017）；桥水 Pure Alpha 费后（Barron's / 中国证券报 2012 等公开报道，区间 8.7%~9.5%，取 9.5%）。</p>
+
+<p>这一年的横截面把合击的逻辑展示得最清楚：<b>方向预测型 B（Pure Alpha）和系统化趋势型 B（SG Trend）都在股票深跌时录得正收益，且两者的正收益来源不同</b>（前者靠宏观洞察提前布局，后者靠规则自动转向空头）——意味着 B 层内部还可以再做一次分散。</p>
+
+<h3>3.4 合击的净值数学：主要收益是回撤压缩</h3>
+<ul>
+<li>日常状态：alpha 层 IR ≈ 1.0（你的样本外夏普 1.06 正好在这个量级）+ 择时层 IR ≈ 0.3，相关性近似 0 → 组合 IR ≈ √(1.0² + 0.3²) ≈ 1.04——<b>夏普提升有限，别指望择时层增厚收益</b>。</li>
+<li>尾部状态（2024.2 微盘危机 / 2015.6 型情景）：若 vol 信号已提前降仓 + 趋势层已持空，组合回撤可从 −15% 级压缩到 −8% 级——<b>Calmar 显著改善</b>。</li>
+<li>结论：<b>择时层应按"风险预算"考核，不按收益考核</b>。这是它和 alpha 层的根本区别，也是多数人做叠加时用错的地方。</li>
+</ul>
+
+<h2>四、建议：明确、有依据、可证伪</h2>
+
+<h3>4.1 三个判断</h3>
+
+<table>
+<tr><th style="width:26%;">判断</th><th style="width:37%;">依据</th><th>说明</th></tr>
+<tr>
+<td><b>1. 主线保持 A，不动摇</b></td>
+<td>① 本项目 6 因子组合样本外（2023–2026）夏普 1.06、Q5 年化约 22%（本项目 factor_eval 回测）；② 截面是机构主流、容量天花板最高（案例 1–3）；③ 转 B 等于放弃既有全部比较优势，去一个 BR 天花板更低的领域</td>
+<td>你的基础设施（21 因子、约 2.8 亿行 factor_value、2015 起）全部为截面服务，这是护城河不是沉没成本</td>
+</tr>
+<tr>
+<td><b>2. B 只做"风险管理式"，不做"方向预测式"</b></td>
+<td>① Moreira &amp; Muir（2017）与 Barroso &amp; Santa-Clara（2015）的顶刊证据；② AQR 研究证明因子内择时 deceptively difficult（需核实原文）；③ SG Trend 2024–2025 的 −20.4% 与桥水 2012–2019 的八年平庸，展示方向预测的脆弱性与低持续性</td>
+<td>方向预测式择时参数多、样本少、验证难，是过拟合的重灾区；风险管理式参数少、逻辑硬、可验证</td>
+</tr>
+<tr>
+<td><b>3. 载体用现成框架：backtest_ts + combo_backtest</b></td>
+<td>① backtest_ts 的统一输出契约（daily_returns + holdings）天然适配择时信号；② combo_backtest 已支持多策略收益合成、贡献/相关矩阵——合击所需的"模块层分离、组合层叠加"架构你已经有了</td>
+<td>缺的只是择时策略模块本身，不是架构</td>
+</tr>
+</table>
+
+<h3>4.2 三个模块，按优先级落地</h3>
+
+<table>
+<tr><th style="width:15%;">模块</th><th style="width:8%;">优先级</th><th style="width:37%;">规格</th><th>依据</th></tr>
+<tr>
+<td><b>M1 · vol-targeting overlay</b></td>
+<td>★★★</td>
+<td>对 6 因子组合日收益做 20 日实现波动估计；目标年化 15%；仓位 = 目标 / 实现，区间 [0.5, 1.5]；参数仅 2 个</td>
+<td>Moreira &amp; Muir（2017）；Barroso &amp; Santa-Clara（2015）。最难过拟合、学术证据最硬、实现最轻</td>
+</tr>
+<tr>
+<td><b>M2 · ERP 择时</b></td>
+<td>★★</td>
+<td>全 A 等权 EP(ttm) − 10Y 国债收益率 → 三档调 beta 仓位（如 ERP &gt; 4% 加仓 / &lt; 1% 减仓）；数据需补中债 10Y（akshare bond_china_yield），EP 可用现成 daily_basic</td>
+<td>FED 模型逻辑 + A 股 ERP 极值区的历史规律。经济逻辑清晰、参数少。<b>上实盘前必须用本地数据完整实证分档阈值</b></td>
+</tr>
+<tr>
+<td><b>M3 · 趋势卫星</b></td>
+<td>★</td>
+<td>宽基 ETF 双动量：12 个月动量 &gt; 0 持有权益，否则切短债/货币；标的用 510300/510500 级宽基（etf_quote 数据现成）</td>
+<td>Antonacci 双动量（2014）；定位是尾部对冲（案例 4 的危机 alpha），不是收益引擎</td>
+</tr>
+</table>
+
+<h3>4.3 验证纪律与成功标准（可证伪）</h3>
+
+<div class="panel">
+<ul>
+<li><b>walk-forward 样本外</b>：B 层样本稀疏，防过拟合是第一要务；样本内的一切漂亮数字只作参考。</li>
+<li><b>参数 ±20% 敏感性测试</b>：M1 的窗口与目标、M2 的分档阈值，扰动后结果不应面目全非，否则即拟合产物。</li>
+<li><b>combo_backtest 相关矩阵验证</b>：择时层与 alpha 层日常相关性应接近 0；在 2024.2、2015.6 等极端期应呈负贡献——这是合击的全部价值所在，用你现成的贡献矩阵直接检验。</li>
+<li><b>风险预算</b>：B 层最大回撤预算 ≤ 组合的 10~15%；按 Calmar 考核而非收益考核。</li>
+<li><b>成功标准（可证伪）</b>：滚动 6 个月窗口内，叠加版组合 Calmar &gt; 裸 alpha 组合，且夏普下降 ≤ 10% → 保留；任一模块敏感性测试失败 → 降级为研究记录，不上线。</li>
+</ul>
+</div>
+
+<div class="verdict">
+<div class="h">最终结论</div>
+你不需要在两条路线里二选一。Alpha 层（已建成、已验证）满负荷跑截面组合；beta 层以"风险管理式择时"的形态引入 B——M1 vol-targeting 最优先（证据最硬、参数最少、实现最轻），M2 ERP 次之（需先补数据源并实证），M3 趋势卫星可选（定位尾部对冲）。合击的目标不是赚更多，是<b>在 2024.2 型情景里亏更少</b>——这既是学术结论（Moreira &amp; Muir），也是机构实务（AQR、国内双线私募）用脚投票给出的同一答案。
+</div>
+
+<div class="disclaim">
+<b>免责声明</b>：以上内容基于公开数据和量化分析，仅供参考，不构成投资建议。市场有风险，投资需谨慎。任何投资决策应结合个人风险承受能力、资金状况和投资目标独立判断，必要时咨询持牌专业机构。过往表现不预示未来收益。文中标注"需核实原文"处为二手引用，请在引用前核对原始文献；本项目回测数据（夏普 1.06、Q5 年化约 22%）为历史样本外统计，不构成对未来收益的承诺。
+</div>
+
+</div>
+
+<script>
+var c1 = echarts.init(document.getElementById('chart1'));
+c1.setOption({
+  title: { text: '危机 alpha 实证：SG Trend Index vs S&P 500 年度收益（2000–2014）', left: 'center', textStyle: { fontSize: 14 } },
+  tooltip: { trigger: 'axis' },
+  legend: { data: ['S&P 500 (TR)', 'SG Trend Index'], top: 30 },
+  grid: { left: 50, right: 20, top: 70, bottom: 40 },
+  xAxis: { type: 'category', data: ['2000','2001','2002','2003','2004','2005','2006','2007','2008','2009','2010','2011','2012','2013','2014'] },
+  yAxis: { type: 'value', name: '年度收益 (%)', axisLabel: { formatter: '{value}' } },
+  series: [
+    { name: 'S&P 500 (TR)', type: 'bar', data: [-8,-11,-21,29,11,5,16,5,-37,26,15,2,16,33,13], itemStyle: { color: '#888780' } },
+    { name: 'SG Trend Index', type: 'bar', data: [11,0,26,12,3,1,8,9,21,-5,13,-7,-2,3,20], itemStyle: { color: '#0F6E56' } }
+  ]
+});
+
+var c2 = echarts.init(document.getElementById('chart2'));
+c2.setOption({
+  title: { text: '2008 年危机四象：谁在股市深跌时赚钱', left: 'center', textStyle: { fontSize: 14 } },
+  tooltip: { trigger: 'axis' },
+  grid: { left: 60, right: 30, top: 50, bottom: 40 },
+  xAxis: { type: 'category', data: ['MSCI ACWI', 'S&P 500 (TR)', '桥水 Pure Alpha (费后)', 'SG Trend Index'], axisLabel: { interval: 0, fontSize: 11 } },
+  yAxis: { type: 'value', name: '2008 年收益 (%)' },
+  series: [{
+    type: 'bar',
+    barWidth: '55%',
+    label: { show: true, position: 'outside', formatter: '{c}%' },
+    data: [
+      { value: -42.2, itemStyle: { color: '#3B6D11' } },
+      { value: -37.0, itemStyle: { color: '#3B6D11' } },
+      { value: 9.5, itemStyle: { color: '#A32D2D' } },
+      { value: 20.9, itemStyle: { color: '#A32D2D' } }
+    ]
+  }]
+});
+
+window.addEventListener('resize', function() { c1.resize(); c2.resize(); });
+</script>
+
+</body>
+</html>

@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>A股价值投资的实证路径：成功案例、方法论与数据论证</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<style>
+  :root{
+    --red:#d92121; --green:#1e7a3c; --ink:#1a1a1a; --muted:#666; --line:#e6e6e6;
+    --bg:#f7f7f5; --card:#ffffff; --accent:#8a6d3b; --blue:#2c5f8a;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;line-height:1.75;}
+  .wrap{max-width:980px;margin:0 auto;padding:40px 28px 80px;}
+  h1{font-size:28px;margin:0 0 6px;letter-spacing:.5px;}
+  .sub{color:var(--muted);font-size:14px;margin-bottom:8px;}
+  .meta{color:#999;font-size:12px;border-bottom:1px solid var(--line);padding-bottom:16px;margin-bottom:24px;}
+  h2{font-size:21px;margin:40px 0 14px;padding-left:11px;border-left:4px solid var(--accent);}
+  h3{font-size:16px;margin:24px 0 10px;}
+  p{font-size:15px;color:#333;margin:10px 0;}
+  .tl{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:22px 24px;margin:20px 0;}
+  .tl h2{margin-top:0;border-left-color:var(--red);}
+  .kpi-row{display:flex;gap:14px;flex-wrap:wrap;margin:16px 0 4px;}
+  .kpi{flex:1 1 150px;background:#faf9f6;border:1px solid var(--line);border-radius:8px;padding:14px 16px;text-align:center;}
+  .kpi .num{font-size:24px;font-weight:700;color:var(--red);}
+  .kpi .num.green{color:var(--green);}
+  .kpi .lab{font-size:12px;color:var(--muted);margin-top:4px;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:20px 22px;margin:16px 0;}
+  table{width:100%;border-collapse:collapse;font-size:13.5px;margin:12px 0;background:#fff;}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:center;}
+  th{background:#f4f1ea;font-weight:600;}
+  td.l,th.l{text-align:left;}
+  .up{color:var(--red);font-weight:600;}
+  .down{color:var(--green);font-weight:600;}
+  .chart{width:100%;height:360px;margin:8px 0;}
+  .src{font-size:11.5px;color:#999;margin-top:6px;}
+  .note{font-size:12.5px;color:var(--muted);background:#faf7ef;border-left:3px solid var(--accent);padding:8px 12px;margin:10px 0;border-radius:0 4px 4px 0;}
+  .box{border:1px solid var(--line);border-radius:8px;padding:14px 16px;margin:10px 0;background:#fff;}
+  .tag{display:inline-block;font-size:11px;color:#fff;background:var(--accent);border-radius:4px;padding:2px 8px;margin-right:6px;}
+  .tag.red{background:var(--red);}
+  .tag.blue{background:var(--blue);}
+  .disc{font-size:12px;color:#888;border-top:1px solid var(--line);margin-top:36px;padding-top:14px;}
+  ol li,ul li{margin:6px 0;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>A股价值投资的实证路径</h1>
+<div class="sub">成功案例调研 · 因子有效性实证 · 方法论推演</div>
+<div class="meta">数据时点：2026-09-12 ｜ 本地回测区间：2016-01-04 ~ 2026-08-19 ｜ 数据源：stock_data 仓库 PostgreSQL + 公开研报/论文（详见各节标注）</div>
+
+<!-- ============ 首屏结论 ============ -->
+<div class="tl">
+  <h2>核心结论（TL;DR）</h2>
+  <p>价值投资在 A 股<b>长期有效</b>，但有效形态与美股显著不同——它不是"买好公司长期持有"的质量故事，而是<b>"便宜 + 真实现金流 + 持续分红 + 逆向时点 + 分散组合"</b>的组合。五条实证发现：</p>
+  <div class="kpi-row">
+    <div class="kpi"><div class="num">5.0%~6.7%</div><div class="lab">BP/EP/DP/SP 四类价值因子 IC 全部显著为正</div></div>
+    <div class="kpi"><div class="num green">0.5%</div><div class="lab">ROE（质量）单因子 IC 近乎无效，高ROE反而跑输</div></div>
+    <div class="kpi"><div class="num">0.61</div><div class="lab">股息率因子样本外夏普（2023-2026）全场最佳</div></div>
+    <div class="kpi"><div class="num">3.1%→11.5%</div><div class="lab">价值组合年化：样本内(16-22) vs 样本外(23-26)</div></div>
+  </div>
+  <ol>
+    <li><b>价值因子是A股最扎实的超额收益来源之一</b>：BP（账面市值比）、EP、DP（股息率）、SP 四个因子 IC 均值 5.0%~6.7%、多空年化 6.8%~12.5%，全部方向稳定（IC 正率 62%~65%）。</li>
+    <li><b>但"纯质量"（机械 ROE 排序）在A股失效</b>：ROE 因子 IC 仅 0.5%、高 ROE 组年化反而最低（1.1%），是 2019-2021 白马行情后"还债"的量化印证。成功者（邓晓峰/张坤）靠的是深度研究下的"好公司+好价格"，而非机械质量打分。</li>
+    <li><b>股息率是最稳健的价值锚</b>：样本外夏普 0.61、回撤 -24.1% 全场最佳；对应红利低波/红利质量指数长期年化 12.9%/13.7%、夏普 0.65/0.78，全面碾压沪深300。</li>
+    <li><b>价值收益高度风格周期化</b>：样本内（2016-2022）价值组合年化仅 3.1%，样本外（2023-2026）11.5%——逆向在风格低谷布局是价值投资的关键，而非无脑持有。</li>
+    <li><b>警惕价值陷阱</b>：最便宜一档（Q5）年化 6.1% 反而不如次便宜档（Q4）的 6.5%，纯低估值必须叠加现金流/分红质量过滤。</li>
+  </ol>
+</div>
+
+<!-- ============ 第一章 案例调研 ============ -->
+<h2>一、A股价值投资的成功案例与方案</h2>
+
+<h3>1.1 主动型价值投资者（案例层）</h3>
+<div class="card">
+<table>
+  <tr><th>投资人</th><th>机构</th><th class="l">风格</th><th class="l">代表案例</th><th class="l">业绩</th></tr>
+  <tr><td>邓晓峰</td><td>高毅资产</td><td class="l">价值+逆向（"好行业好公司好价格"）</td><td class="l">紫金矿业、宁德时代、宏发股份</td><td class="l">社保组合9年近10倍（年化29.1%）；私募5年年化21%，领先沪深300 170%</td></tr>
+  <tr><td>张坤</td><td>易方达</td><td class="l">成长价值（GARP，重ROIC与现金流）</td><td class="l">贵州茅台连续持有29个季度</td><td class="l">易方达蓝筹精选成立以来年化16.3%，规模一度破800亿</td></tr>
+  <tr><td>但斌</td><td>东方港湾</td><td class="l">成长价值（"时间的玫瑰"）</td><td class="l">茅台（超20倍）、腾讯（8倍）</td><td class="l">旗舰产品近10年年化18.7%</td></tr>
+  <tr><td>王文</td><td>日斗投资</td><td class="l">景气价值（周期底部逆向）</td><td class="l">新能源上游、半导体周期反转</td><td class="l">近5年年化超20%，规模5000万→300亿</td></tr>
+</table>
+<div class="src">来源：新浪财经（2020-05）、同花顺财经（2023-12）、人民日报、今日头条等公开报道；业绩数据为第三方披露口径，需核实原文。</div>
+</div>
+<p>这些成功者的<b>方法论共性</b>：① 强调"好价格"（估值合理才买）；② 逆向——在价值被误判、股价大跌时买入（邓晓峰"沧海横流拾遗珠"）；③ 深度基本面研究而非机械指标；④ 集中持股但行业分散、长期持有。</p>
+
+<h3>1.2 被动型红利/价值指数（方案层，最可复制的证据）</h3>
+<div class="card">
+<div id="chart_idx" class="chart"></div>
+<div class="src">数据来源：iFinD 全收益指数，2013/1/1 ~ 2026/4/13（同花顺投顾平台转载）。红利质量为另一口径（Wind，截至2026/7/10）：年化13.7%、夏普0.78。</div>
+<table>
+  <tr><th>指数</th><th>年化收益</th><th>夏普比率</th><th>最大回撤</th></tr>
+  <tr><td>国证自由现金流</td><td class="up">18.6%</td><td>0.81</td><td>-50.2%</td></tr>
+  <tr><td>国证价值100</td><td class="up">17.9%</td><td>0.81</td><td>-39.9%</td></tr>
+  <tr><td>中证红利低波</td><td class="up">12.9%</td><td>0.65</td><td>-42.5%</td></tr>
+  <tr><td>中证红利</td><td class="up">11.1%</td><td>0.54</td><td>-45.7%</td></tr>
+  <tr><td>沪深300（基准）</td><td>7.3%</td><td>0.34</td><td>-46.1%</td></tr>
+</table>
+<div class="note">要点：四类红利/价值指数<b>全部大幅跑赢沪深300</b>，且夏普更高、回撤更小。其中"红利+质量/现金流"（国证自由现金流、国证价值100）最强，"纯高股息"（中证红利）最弱——这直接指向后文的核心方法论：<b>价值必须叠加现金流/质量过滤</b>。</div>
+</div>
+
+<h3>1.3 学术证据（因子有效性）</h3>
+<div class="card">
+<ul>
+  <li><b>王改银（2023，《金融》13(6)）</b>：2006.7~2022.6 期间，A股<b>不存在账面市值比（BM）效应</b>，但 <b>CFP（现金收益价格比）、DP（股息价格比）、EP（每股收益价格比）样本内外预测力均较强</b>；市值效应存在。</li>
+  <li><b>CIRF 论文《Is Value Strategy Still Alive?》（A股样本，1999-2020）</b>：三个 EP 口径（毛利/营业利润/净利）Fama-MacBeth 回归显著，BM 弱（与 Liu et al. 2019 一致）；价值复合因子月均 0.67%（t=3.37），显著跑赢市场组合 0.45%（t=1.28）。</li>
+  <li><b>聚宽《红利价值策略的因子工程重构》</b>：BP/EP/SP/CFP/DP 五因子在A股实证有效；对价值因子分子端改进（股东盈余、留存收益等）多数在A股有效。</li>
+</ul>
+<div class="src">来源：学术论文与量化社区研究（非一手数据源，需核实原文）。</div>
+</div>
+<p class="note">学术共识与本仓库实证方向一致：<b>A股的价值溢价集中在"盈利/现金/股息相对于价格"（EP/DP/CFP），而非单纯的"净资产相对于价格"（BM）</b>。这提示 A 股价值投资要把"现金流和分红真实性"放在第一位。</p>
+
+<!-- ============ 第二章 本地实证 ============ -->
+<h2>二、本地数据实证：A股价值因子到底有没有效</h2>
+
+<h3>2.1 方法与口径</h3>
+<div class="box">
+  <p style="margin:0">基于 stock_data 仓库 <code>factor_value</code> 与 <code>daily_basic</code> 表，对沪深 A 股（剔除北交所/ST/退市变体/上市未满120日，共 5226 只）做<b>截面 Spearman Rank IC + 五层分层回测</b>：月度调仓（20交易日），T 日因子 → T+1 建仓 → 持有 20 日，等权，单边成本 0.15%。区间 <b>2016-01-04 ~ 2026-08-19（129 期，约10.6年）</b>，覆盖 2019-2021 成长牛、2022-2024 熊市、2025-2026 风格切换，含完整周期。</p>
+</div>
+
+<h3>2.2 单因子 IC/IR 与多空价差</h3>
+<div class="card">
+<div id="chart_ls" class="chart"></div>
+<table>
+  <tr><th>因子</th><th>定义</th><th>IC均值</th><th>IR</th><th>IC正率</th><th>多空年化</th><th>Q5年化</th><th>Q5夏普</th><th>Q5回撤</th></tr>
+  <tr><td>BP</td><td>1/市净率</td><td class="up">6.7%</td><td>0.39</td><td>61.7%</td><td class="up">12.5%</td><td class="up">7.3%</td><td>0.34</td><td>-42.1%</td></tr>
+  <tr><td>EP</td><td>1/市盈率TTM</td><td class="up">5.3%</td><td>0.32</td><td>62.5%</td><td class="up">6.8%</td><td class="up">3.8%</td><td>0.19</td><td>-37.6%</td></tr>
+  <tr><td>DP</td><td>股息率TTM</td><td class="up">5.2%</td><td>0.32</td><td>63.3%</td><td class="up">8.3%</td><td class="up">5.9%</td><td>0.30</td><td>-35.8%</td></tr>
+  <tr><td>SP</td><td>1/市销率TTM</td><td class="up">5.0%</td><td>0.33</td><td>64.8%</td><td class="up">10.5%</td><td class="up">6.9%</td><td>0.31</td><td>-40.6%</td></tr>
+  <tr><td>ROE</td><td>净资产收益率</td><td>0.5%</td><td>0.04</td><td>50.0%</td><td class="down">-2.2%</td><td>1.1%</td><td>0.05</td><td>-43.0%</td></tr>
+  <tr><td>ln_mv</td><td>-ln总市值(小盘)</td><td class="up">4.2%</td><td>0.22</td><td>63.3%</td><td class="up">15.0%</td><td class="up">15.0%</td><td>0.54</td><td>-53.7%</td></tr>
+  <tr><td><b>value4</b></td><td>BP+EP+DP+SP 等权</td><td class="up">6.4%</td><td>0.33</td><td>64.1%</td><td class="up">11.6%</td><td class="up">6.1%</td><td>0.30</td><td>-37.4%</td></tr>
+</table>
+<div class="src">数据源：stock_data 仓库 factor_value / daily_basic，本地回测 2016-01-04~2026-08-19。</div>
+<div class="note">三个关键信号：① 四类价值因子 IC 全部显著（>5%）、IR 0.32~0.39，是A股最强的基本面因子族；② <b>ROE 单因子无效</b>（IC 0.5%、多空 -2.2%）；③ 小盘因子（ln_mv）多空最强（15.0%）但回撤最深（-53.7%）。</div>
+</div>
+
+<h3>2.3 价值组合的单调性（便宜 → 贵）</h3>
+<div class="card">
+<div id="chart_mono" class="chart"></div>
+<div class="src">数据源：本地回测，value4（BP+EP+DP+SP 等权）五等分组年化收益。</div>
+<div class="note">分层几乎严格单调：最贵组（Q1）年化 -4.9%，最便宜组（Q5）年化 6.1%，多空 11.6%。但注意 <b>Q4（6.5%）略高于 Q5（6.1%）</b>——最便宜的一档混入了财务困境股，正是"价值陷阱"的量化体现。</div>
+</div>
+
+<h3>2.4 样本内 / 样本外：价值收益的风格周期性</h3>
+<div class="card">
+<div id="chart_seg" class="chart"></div>
+<table>
+  <tr><th>组合</th><th>样本内 2016-2022 年化</th><th>样本外 2023-2026 年化</th><th>样本外夏普</th><th>样本外回撤</th></tr>
+  <tr><td>value4（纯价值）</td><td>3.1%</td><td class="up">11.5%</td><td>0.60</td><td>-24.9%</td></tr>
+  <tr><td>value+quality</td><td>2.8%</td><td class="up">11.1%</td><td>0.58</td><td>-25.0%</td></tr>
+  <tr><td>DP（股息率）</td><td>3.0%</td><td class="up">11.3%</td><td>0.61</td><td>-24.1%</td></tr>
+  <tr><td>沪深300（基准）</td><td>—</td><td>—</td><td>0.16</td><td>-45.6%</td></tr>
+</table>
+<div class="src">数据源：本地回测；沪深300 为同期基准（年化 3.0%、夏普 0.16、回撤 -45.6%）。</div>
+<div class="note">价值因子在 2016-2022（尤其 2019-2021 成长/白马牛市）几乎不赚钱，在 2023-2026（红利风格占优）大幅爆发。这决定了两件事：<b>价值投资必须容忍漫长的风格逆风期，且逆向布局时点比"选什么"更关键</b>。</div>
+</div>
+
+<!-- ============ 第三章 方法论 ============ -->
+<h2>三、推理：A股价值投资的合理路径与方法论</h2>
+
+<p>把案例共性 + 学术证据 + 本地实证三条线索交叉，可以收敛出 A 股价值投资的<b>一条主公式</b>：</p>
+<div class="card" style="text-align:center;font-size:17px;background:#faf6ee;">
+  <b style="color:var(--red);">A股价值 = 便宜（多维估值）＋ 真实现金流 ＋ 持续分红/回购 ＋ 逆向时点 ＋ 分散组合</b><br>
+  <span style="color:#999;font-size:13px;">—— 减去「价值陷阱」（财务困境 / 周期顶部 / 会计造假）</span>
+</div>
+
+<h3>3.1 五条可执行路径</h3>
+<div class="card">
+<ol>
+  <li><b><span class="tag red">最稳健</span>红利为锚</b>：股息率 &gt;3~4% ＋ 连续多年分红 ＋ 红利支付率适中（剔除 &gt;100%）＋ 经营现金流覆盖分红 ≥1.5 倍。<br>
+  <span class="src">证据：DP 因子样本外夏普 0.61 全场最佳；红利低波/红利质量指数长期年化 12.9%/13.7%、夏普 0.65/0.78。</span></li>
+  <li><b><span class="tag">进攻</span>深度价值/逆向</b>：低 PB/PE ＋ 基本面触底信号 ＋ 逆向布局 ＋ 估值修复兑现。<br>
+  <span class="src">证据：BP 多空年化 12.5% 最强；邓晓峰逆向买入紫金矿业、社保组合 9 年近 10 倍。</span></li>
+  <li><b><span class="tag blue">防陷阱</span>价值＋现金流质量</b>：低估值必须叠加"现金流真实性 + 盈利质量"过滤，而非机械 ROE。<br>
+  <span class="src">证据：红利质量 &gt; 红利 &gt; 纯红利；Q5≈Q4 显示最便宜档混入价值陷阱；机械 ROE 因子 IC 仅 0.5%。</span></li>
+  <li><b><span class="tag">组合</span>多维价值因子</b>：BP+EP+DP+SP（+CFP）多因子合成，而非单一 PE/PB。<br>
+  <span class="src">证据：value4 组合 IC 6.4%、多空 11.6%，优于多数单因子；学术文献 CFP/EP/DP 有效而 BM 弱。</span></li>
+  <li><b><span class="tag blue">风控</span>风格周期＋分散</b>：价值收益高度周期化，需逆向在风格低谷布局、低相关分散控制回撤。<br>
+  <span class="src">证据：样本内 3.1% vs 样本外 11.5%；单因子 Q5 回撤 -35%~-53%。</span></li>
+</ol>
+</div>
+
+<h3>3.2 价值陷阱规避清单（可执行）</h3>
+<div class="card">
+<table>
+  <tr><th class="l">陷阱类型</th><th class="l">识别信号</th><th class="l">规避动作</th></tr>
+  <tr><td class="l">财务困境（便宜有便宜的理由）</td><td class="l">连续亏损、有息负债率畸高、经营现金流长期为负</td><td class="l">剔除；或要求 ROIC/现金流为正</td></tr>
+  <tr><td class="l">周期顶部高股息</td><td class="l">周期股在盈利峰值大额分红、股息率虚高</td><td class="l">看 PB 分位与盈利持续性，警惕"股息率陷阱"</td></tr>
+  <tr><td class="l">会计造假/虚增盈利</td><td class="l">净利高但现金回款差、应收账款/存货异常攀升</td><td class="l">用 CFP（现金流价格比）交叉验证</td></tr>
+  <tr><td class="l">融资分红</td><td class="l">分红前频繁股权融资、动用储备派息</td><td class="l">剔除派息率&gt;100% 且 FCF 为负者</td></tr>
+  <tr><td class="l">低估值但无催化</td><td class="l">长期破净但无治理改善/回购/重组动作</td><td class="l">要求有回购注销、增持、分红提升等股东回报行为</td></tr>
+</table>
+</div>
+
+<h3>3.3 与美股价值投资的本质差异</h3>
+<div class="card">
+<table>
+  <tr><th class="l">维度</th><th class="l">美股（成熟市场）</th><th class="l">A股（新兴+散户主导）</th></tr>
+  <tr><td class="l">质量因子（ROE/ROIC）</td><td class="l">长期有效，是核心 alpha</td><td class="l">本周期失效，机械排序买到"贵白马"</td></tr>
+  <tr><td class="l">价值载体</td><td class="l">BM 有效（经典 HML）</td><td class="l">BM 弱，EP/DP/CFP 强（现金流与分红更重要）</td></tr>
+  <tr><td class="l">风格切换</td><td class="l">相对温和</td><td class="l">极端剧烈（价值/成长单边数年）</td></tr>
+  <tr><td class="l">小盘溢价</td><td class="l">微弱甚至为负</td><td class="l">显著（ln_mv 多空 15%），但回撤深</td></tr>
+  <tr><td class="l">成功关键</td><td class="l">买入并长期持有优质公司</td><td class="l">逆向时点 + 分红/现金流验证 + 分散</td></tr>
+</table>
+<div class="src">本表为综合学术文献与本地实证的归纳判断。</div>
+</div>
+
+<h3>3.4 落地路线图</h3>
+<div class="card">
+<ol>
+  <li><b>打底仓（60%）</b>：红利为锚——中证红利低波 / 红利质量 / 国证自由现金流类指数或高股息组合，赚"股息复利 + 估值回归"的长期稳健收益。</li>
+  <li><b>增强仓（40%）</b>：多维价值因子（BP+EP+DP+SP）选出低估值标的池，叠加现金流/分红质量过滤剔除价值陷阱，逆向在风格低谷分批布局。</li>
+  <li><b>风控纪律</b>：单一个股 ≤10%、单一行业分散、月度再平衡、跟踪估值分位与拥挤度（股息率因子若被大幅推高至历史极低分位，警惕红利拥挤）。</li>
+  <li><b>退出条件</b>：估值修复至历史均值区间（如 PE 回升至中位数）减仓兑现；基本面恶化（盈利/现金流拐头）无条件离场——而非简单"长期持有"。</li>
+</ol>
+</div>
+
+<div class="disc">
+<b>免责声明</b>：以上内容基于公开数据和量化分析，仅供参考，不构成投资建议。市场有风险，投资需谨慎。任何投资决策应结合个人风险承受能力、资金状况和投资目标独立判断，必要时咨询持牌专业机构。过往表现不预示未来收益。回测结果含幸存者偏差、成本假设简化等局限，实盘可能显著偏离。
+</div>
+
+</div>
+
+<script>
+(function(){
+  var red = '#d92121', green = '#1e7a3c', gray = '#9aa0a6';
+
+  // 图1：红利/价值指数 vs 沪深300 年化收益
+  var c1 = echarts.init(document.getElementById('chart_idx'));
+  c1.setOption({
+    tooltip:{trigger:'axis',formatter:'{b}: {c}%'},
+    grid:{left:60,right:30,top:40,bottom:30},
+    xAxis:{type:'category',data:['沪深300','中证红利','红利低波','国证价值100','国证自由现金流']},
+    yAxis:{type:'value',name:'年化收益(%)',axisLabel:{formatter:'{value}%'}},
+    series:[{
+      type:'bar',barWidth:'52%',
+      data:[
+        {value:7.3,itemStyle:{color:gray}},
+        {value:11.1,itemStyle:{color:'#c25b4a'}},
+        {value:12.9,itemStyle:{color:'#d92121'}},
+        {value:17.9,itemStyle:{color:'#e0483a'}},
+        {value:18.6,itemStyle:{color:'#a31616'}}
+      ],
+      label:{show:true,position:'top',formatter:'{c}%'}
+    }]
+  });
+
+  // 图2：价值因子多空价差
+  var c2 = echarts.init(document.getElementById('chart_ls'));
+  c2.setOption({
+    tooltip:{trigger:'axis',formatter:'{b}: {c}%'},
+    grid:{left:60,right:30,top:40,bottom:30},
+    xAxis:{type:'category',data:['EP','DP','SP','value4','BP','ln_mv(小盘)']},
+    yAxis:{type:'value',name:'多空年化(%)',axisLabel:{formatter:'{value}%'}},
+    series:[{
+      type:'bar',barWidth:'55%',
+      data:[
+        {value:6.8,itemStyle:{color:'#c25b4a'}},
+        {value:8.3,itemStyle:{color:'#c25b4a'}},
+        {value:10.5,itemStyle:{color:'#d92121'}},
+        {value:11.6,itemStyle:{color:'#d92121'}},
+        {value:12.5,itemStyle:{color:'#d92121'}},
+        {value:15.0,itemStyle:{color:'#7a7a7a'}}
+      ],
+      label:{show:true,position:'top',formatter:'{c}%'}
+    }]
+  });
+
+  // 图3：value4 五层单调性
+  var c3 = echarts.init(document.getElementById('chart_mono'));
+  c3.setOption({
+    tooltip:{trigger:'axis',formatter:'{b}: {c}%'},
+    grid:{left:60,right:30,top:40,bottom:30},
+    xAxis:{type:'category',data:['Q1(最贵)','Q2','Q3','Q4','Q5(最便宜)']},
+    yAxis:{type:'value',name:'年化收益(%)',axisLabel:{formatter:'{value}%'}},
+    series:[{
+      type:'bar',barWidth:'55%',
+      data:[
+        {value:-4.9,itemStyle:{color:green}},
+        {value:1.1,itemStyle:{color:'#8fb89b'}},
+        {value:5.3,itemStyle:{color:'#c25b4a'}},
+        {value:6.5,itemStyle:{color:'#d92121'}},
+        {value:6.1,itemStyle:{color:'#d92121'}}
+      ],
+      label:{show:true,position:'top',formatter:'{c}%'}
+    }]
+  });
+
+  // 图4：样本内 vs 样本外
+  var c4 = echarts.init(document.getElementById('chart_seg'));
+  c4.setOption({
+    tooltip:{trigger:'axis',formatter:function(p){var s=p[0].name;var v='';for(var i=0;i<p.length;i++){v+=p[i].seriesName+': '+p[i].value+'%<br/>';}return s+'<br/>'+v;}},
+    legend:{data:['样本内 2016-2022','样本外 2023-2026']},
+    grid:{left:60,right:30,top:50,bottom:30},
+    xAxis:{type:'category',data:['value4(纯价值)','value+quality','DP(股息率)']},
+    yAxis:{type:'value',name:'年化收益(%)',axisLabel:{formatter:'{value}%'}},
+    series:[
+      {name:'样本内 2016-2022',type:'bar',barWidth:'30%',data:[
+        {value:3.1,itemStyle:{color:'#c8a96a'}},
+        {value:2.8,itemStyle:{color:'#c8a96a'}},
+        {value:3.0,itemStyle:{color:'#c8a96a'}}
+      ]},
+      {name:'样本外 2023-2026',type:'bar',barWidth:'30%',data:[
+        {value:11.5,itemStyle:{color:'#d92121'}},
+        {value:11.1,itemStyle:{color:'#d92121'}},
+        {value:11.3,itemStyle:{color:'#d92121'}}
+      ],label:{show:true,position:'top',formatter:'{c}%'}}
+    ]
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,222 @@
+[
+ {
+  "name": "中际旭创",
+  "code": "300308.SZ",
+  "why": "L0排除(次新/ST/无数据)",
+  "mv": null,
+  "g": null,
+  "roe": null,
+  "gm": null,
+  "ind": null,
+  "final": false
+ },
+ {
+  "name": "长芯博创",
+  "code": "300548.SZ",
+  "why": "L0排除(次新/ST/无数据)",
+  "mv": null,
+  "g": null,
+  "roe": null,
+  "gm": null,
+  "ind": null,
+  "final": false
+ },
+ {
+  "name": "新易盛",
+  "code": "300502.SZ",
+  "why": "L0排除(次新/ST/无数据)",
+  "mv": null,
+  "g": null,
+  "roe": null,
+  "gm": null,
+  "ind": null,
+  "final": false
+ },
+ {
+  "name": "天孚通信",
+  "code": "300394.SZ",
+  "why": "L0排除(次新/ST/无数据)",
+  "mv": null,
+  "g": null,
+  "roe": null,
+  "gm": null,
+  "ind": null,
+  "final": false
+ },
+ {
+  "name": "沪电股份",
+  "code": "002463.SZ",
+  "why": "被拦:增速/ROE/毛利",
+  "mv": 88.0,
+  "g": 12.7,
+  "roe": 0.9,
+  "gm": 14.7,
+  "ind": 0.84,
+  "final": false
+ },
+ {
+  "name": "北方华创",
+  "code": "002371.SZ",
+  "why": "被拦:ROE/行业",
+  "mv": 158.0,
+  "g": 56.1,
+  "roe": 1.1,
+  "gm": 39.7,
+  "ind": 0.63,
+  "final": false
+ },
+ {
+  "name": "振华股份",
+  "code": "603067.SH",
+  "why": "L0排除(次新/ST/无数据)",
+  "mv": null,
+  "g": null,
+  "roe": null,
+  "gm": null,
+  "ind": null,
+  "final": false
+ },
+ {
+  "name": "香农芯创",
+  "code": "300475.SZ",
+  "why": "L0排除(次新/ST/无数据)",
+  "mv": null,
+  "g": null,
+  "roe": null,
+  "gm": null,
+  "ind": null,
+  "final": false
+ },
+ {
+  "name": "胜宏科技",
+  "code": "300476.SZ",
+  "why": "L0排除(次新/ST/无数据)",
+  "mv": null,
+  "g": null,
+  "roe": null,
+  "gm": null,
+  "ind": null,
+  "final": false
+ },
+ {
+  "name": "恒立液压",
+  "code": "601100.SH",
+  "why": "被拦:增速/ROE/毛利/行业",
+  "mv": 80.0,
+  "g": 7.7,
+  "roe": 0.8,
+  "gm": 19.9,
+  "ind": 0.23,
+  "final": false
+ },
+ {
+  "name": "东山精密",
+  "code": "002384.SZ",
+  "why": "被拦:ROE/毛利",
+  "mv": 152.0,
+  "g": 32.4,
+  "roe": 5.5,
+  "gm": 16.7,
+  "ind": 0.84,
+  "final": false
+ },
+ {
+  "name": "思源电气",
+  "code": "002028.SZ",
+  "why": "被拦:增速/ROE/行业",
+  "mv": 84.0,
+  "g": 11.9,
+  "roe": 3.7,
+  "gm": 33.6,
+  "ind": 0.66,
+  "final": false
+ },
+ {
+  "name": "天华新能",
+  "code": "300390.SZ",
+  "why": "被拦:增速/ROE/毛利/行业",
+  "mv": 45.0,
+  "g": 11.2,
+  "roe": 1.4,
+  "gm": 24.4,
+  "ind": 0.66,
+  "final": false
+ },
+ {
+  "name": "紫金矿业",
+  "code": "601899.SH",
+  "why": "被拦:市值/增速/ROE/毛利/行业",
+  "mv": 694.0,
+  "g": 0.1,
+  "roe": 2.0,
+  "gm": 11.0,
+  "ind": 0.5,
+  "final": false
+ },
+ {
+  "name": "生益科技",
+  "code": "600183.SH",
+  "why": "被拦:增速/ROE/毛利",
+  "mv": 185.0,
+  "g": 8.6,
+  "roe": 6.8,
+  "gm": 20.0,
+  "ind": 0.84,
+  "final": false
+ },
+ {
+  "name": "泰晶科技",
+  "code": "603738.SH",
+  "why": "L0排除(次新/ST/无数据)",
+  "mv": null,
+  "g": null,
+  "roe": null,
+  "gm": null,
+  "ind": null,
+  "final": false
+ },
+ {
+  "name": "山西汾酒",
+  "code": "600809.SH",
+  "why": "被拦:增速/行业",
+  "mv": 170.0,
+  "g": 7.9,
+  "roe": 8.0,
+  "gm": 68.6,
+  "ind": 0.61,
+  "final": false
+ },
+ {
+  "name": "卫星化学",
+  "code": "002648.SZ",
+  "why": "被拦:增速/ROE/毛利/行业",
+  "mv": 76.0,
+  "g": 0.1,
+  "roe": 0.5,
+  "gm": 15.6,
+  "ind": 0.31,
+  "final": false
+ },
+ {
+  "name": "牧原股份",
+  "code": "002714.SZ",
+  "why": "通过",
+  "mv": 258.0,
+  "g": 103.1,
+  "roe": 26.4,
+  "gm": 51.4,
+  "ind": 0.72,
+  "final": true
+ },
+ {
+  "name": "兆易创新",
+  "code": "603986.SH",
+  "why": "L0排除(次新/ST/无数据)",
+  "mv": null,
+  "g": null,
+  "roe": null,
+  "gm": null,
+  "ind": null,
+  "final": false
+ }
+]

@@ -33,6 +33,7 @@ except ImportError:
     pass
 
 import factor_eval as fe  # 复用 get_conn / load_universe_filter
+import strategy_lib as sl  # 复用 optimize_weights / load_recent_returns (风险端加权)
 
 
 # ---------------------------------------------------------------- 数据
@@ -140,7 +141,26 @@ def generate(cur, strategy: dict, force=False, dry_run=False) -> dict:
     score = score.dropna().sort_values(ascending=False)
     top_n = cfg["top_n"]
     target = score.head(top_n)
-    target_w = 1.0 / len(target)
+    # 持仓权重: 等权 或 风险端优化 (min_var 等, 依据 2026-09-12 组合优化裁决)
+    weighting = cfg.get("weighting", "equal")
+    if weighting == "equal":
+        weights = pd.Series(1.0 / len(target), index=target.index)
+    else:
+        hist = sl.load_recent_returns(cur.connection, list(target.index), cfg.get("cov_window", 60))
+        if hist.shape[1] >= 5 and hist.shape[0] >= 20:
+            weights = sl.optimize_weights(hist, weighting, cfg.get("weight_cap", 0.10))
+            weights = weights.reindex(target.index).fillna(0.0)
+            # 剔除 min_var 压到接近 0 的持仓 (回测里 0 权重等价于不持有)
+            min_w = cfg.get("min_weight", 0.005)
+            weights = weights[weights >= min_w]
+            if weights.sum() > 0:
+                weights = sl.renormalize_with_cap(weights, cfg.get("weight_cap", 0.10))
+            else:
+                weights = pd.Series(1.0 / len(target), index=target.index)
+        else:
+            weights = pd.Series(1.0 / len(target), index=target.index)
+        target = target.reindex(weights.index)
+    target_w = float(weights.mean())
 
     # 当前持仓
     cur.execute("SELECT ts_code, weight FROM position WHERE strategy_id = %s", (sid,))
@@ -155,7 +175,7 @@ def generate(cur, strategy: dict, force=False, dry_run=False) -> dict:
 
     signals = []
     for c in buys:
-        signals.append((sid, factor_date, exec_date, c, "BUY", target_w,
+        signals.append((sid, factor_date, exec_date, c, "BUY", float(weights[c]),
                         float(target[c]), int(target.index.get_loc(c)) + 1, "新进"))
     for c in sells:
         signals.append((sid, factor_date, exec_date, c, "SELL", 0.0, None, None, "调仓剔除"))
@@ -173,6 +193,7 @@ def generate(cur, strategy: dict, force=False, dry_run=False) -> dict:
         "skip": False, "reason": why, "factor_date": factor_date, "exec_date": exec_date,
         "pool_size": len(pool), "target": target, "current": current,
         "buys": buys, "sells": sells, "holds": holds, "target_w": target_w,
+        "weights": weights, "weighting": weighting,
         "signals_written": 0 if dry_run else len(signals),
     }
 
@@ -182,9 +203,10 @@ def render(res: dict, strategy: dict) -> str:
     if res["skip"]:
         return f"**{strategy['name']}** — 未到调仓期\n\n{res['reason']}"
     L = [f"### 📋 {strategy['name']} — 调仓信号\n"]
+    wlab = "等权" if res["weighting"] == "equal" else f"加权({res['weighting']})"
     L.append(f"- 信号日: {res['factor_date']} | 建议执行: **{res['exec_date']} 开盘** | "
              f"股票池: {res['pool_size']} 只 | 目标持仓: {len(res['target'])} 只 "
-             f"(等权 {res['target_w']*100:.1f}%)")
+             f"({wlab}, 平均权重 {res['target_w']*100:.1f}%)")
     L.append(f"- 变动: 买入 {len(res['buys'])} | 卖出 {len(res['sells'])} | 保留 {len(res['holds'])} | "
              f"换手 {len(res['buys'])+len(res['sells'])} / {len(res['target'])}\n")
 
@@ -192,11 +214,12 @@ def render(res: dict, strategy: dict) -> str:
         L.append(f"**卖出 ({len(res['sells'])})**: " + ", ".join(res["sells"]))
     if res["buys"]:
         tgt = res["target"]
+        wts = res["weights"]
         L.append(f"\n**买入 ({len(res['buys'])})**:")
-        L.append("| 代码 | 合成分 | 池内排名 |")
-        L.append("|---|---|---|")
+        L.append("| 代码 | 合成分 | 池内排名 | 权重 |")
+        L.append("|---|---|---|---|")
         for c in res["buys"]:
-            L.append(f"| {c} | {tgt[c]:.2f} | {tgt.index.get_loc(c)+1} |")
+            L.append(f"| {c} | {tgt[c]:.2f} | {tgt.index.get_loc(c)+1} | {wts[c]*100:.1f}% |")
     if not res["buys"] and not res["sells"]:
         L.append("\n✅ 目标持仓与当前一致, 无交易")
     return "\n".join(L)

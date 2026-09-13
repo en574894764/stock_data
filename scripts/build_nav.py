@@ -165,7 +165,8 @@ def main():
     if args.strategy:
         sids = [args.strategy]
     else:
-        cur.execute("SELECT DISTINCT strategy_id FROM trade_log")
+        cur.execute("SELECT DISTINCT s.strategy_id FROM signal_log s "
+                    "JOIN trade_log t ON t.signal_id = s.signal_id")
         sids = [r[0] for r in cur.fetchall()]
     cur.close()
 

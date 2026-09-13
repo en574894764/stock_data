@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>stock_data 数据基建诊断报告 · 2026-09-12</title>
+<style>
+  :root { --ink:#1a2332; --sub:#5a6b80; --line:#e3e8ef; --bg:#f6f8fa; --card:#ffffff;
+          --green:#0e9f6e; --red:#d64545; --amber:#d97706; --blue:#2563eb; }
+  * { box-sizing: border-box; margin:0; padding:0; }
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         background:var(--bg); color:var(--ink); line-height:1.65; padding:32px 16px; }
+  .wrap { max-width: 980px; margin:0 auto; }
+  h1 { font-size:26px; margin-bottom:4px; }
+  .meta { color:var(--sub); font-size:13px; margin-bottom:28px; }
+  h2 { font-size:19px; margin:34px 0 12px; padding-bottom:6px; border-bottom:2px solid var(--line); }
+  h3 { font-size:15px; margin:18px 0 8px; }
+  p, li { font-size:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:18px 20px; margin-bottom:14px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; margin:10px 0; }
+  th { text-align:left; background:#eef2f7; padding:8px 10px; border:1px solid var(--line); white-space:nowrap; }
+  td { padding:7px 10px; border:1px solid var(--line); vertical-align:top; }
+  .tag { display:inline-block; font-size:11px; font-weight:600; padding:1px 8px; border-radius:10px; margin-right:4px; }
+  .t-ok   { background:#e6f6ef; color:var(--green); }
+  .t-err  { background:#fdeaea; color:var(--red); }
+  .t-warn { background:#fdf3e3; color:var(--amber); }
+  .t-info { background:#e8effd; color:var(--blue); }
+  .num { font-variant-numeric: tabular-nums; }
+  .kpis { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin:16px 0; }
+  .kpi { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+  .kpi .v { font-size:24px; font-weight:700; }
+  .kpi .l { font-size:12px; color:var(--sub); margin-top:2px; }
+  .v.green{color:var(--green)} .v.red{color:var(--red)} .v.amber{color:var(--amber)}
+  code { background:#eef2f7; padding:1px 6px; border-radius:4px; font-size:12.5px;
+         font-family:"SF Mono", Menlo, Consolas, monospace; }
+  .small { font-size:12px; color:var(--sub); }
+  ul, ol { padding-left:20px; margin:6px 0; }
+  li { margin:4px 0; }
+  .fix { border-left:4px solid var(--blue); }
+  .p1 { border-left:4px solid var(--red); }
+  .p2 { border-left:4px solid var(--amber); }
+  @media (max-width:720px){ .kpis{grid-template-columns:repeat(2,1fr);} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>stock_data 数据基建诊断报告</h1>
+<div class="meta">诊断日期 2026-09-12（周六）· 范围：架构链路 / 数据正确性（第三方源 double check） / validate.py 质检脚本 · 诊断会话：Claw</div>
+
+<!-- ═══════════ 执行摘要 ═══════════ -->
+<h2>一、执行摘要</h2>
+<div class="kpis">
+  <div class="kpi"><div class="v green">≈160/160</div><div class="l">第三方抽样核对项通过<br>（0 项真实 FAIL）</div></div>
+  <div class="kpi"><div class="v green">架构健全</div><div class="l">PG 单向流 + 三层质检<br>+ 自愈 + 飞书告警均正常</div></div>
+  <div class="kpi"><div class="v red">P1 ×1</div><div class="l">退市股 2016→退市日历史缺口<br>约 1600 只（数据完整性主缺口）</div></div>
+  <div class="kpi"><div class="v amber">2 项已修</div><div class="l">CSV 落后 1631 文件已重导<br>build_nav bug 已验证修复</div></div>
+</div>
+<div class="card">
+  <p><b>结论一句话：架构是完善的，在库数据的"值"是对的（抽样 160 项全部与东财/新浪/腾讯/统计局一致），最大的真实问题是约 1600 只已退市股票 2016 年→退市日的历史行情缺失（会产生回测幸存者偏差），以及质检脚本对"中间断档"的盲区。</b></p>
+</div>
+
+<!-- ═══════════ 基建诊断 ═══════════ -->
+<h2>二、数据基建健康度</h2>
+<table>
+<tr><th>环节</th><th>状态</th><th>实测证据</th></tr>
+<tr><td>调度 launchd</td><td><span class="tag t-ok">✅ 正常</span></td><td>周一至五 18:30 + 周六 10:00 准点；昨日 09-11 全程 2361s，今日非交易日分支正常</td></tr>
+<tr><td>拉取链路</td><td><span class="tag t-ok">✅ 正常</span></td><td>A股 5545/5553 新鲜；港股 2070/2727（滞后多为 akshare 源端小盘股断档，属已知特性）</td></tr>
+<tr><td>质检 L1 validate.py</td><td><span class="tag t-ok">✅ 每日</span></td><td>今日实测 89.7s，2 ERR / 26 WARN / 33 PASS（ERR 均为退市股缺口所致）</td></tr>
+<tr><td>质检 L2 reconcile.py</td><td><span class="tag t-ok">✅ 周六</span></td><td>今日实测：抓到 CSV↔PG 1631 文件落后（见问题 2）</td></tr>
+<tr><td>质检 L3 cross_validate.py</td><td><span class="tag t-warn">⚠️ 手动</span></td><td>仅覆盖沪深最近收盘价、需手动跑，未纳入调度（见优化建议 C-2）</td></tr>
+<tr><td>导出 export.py</td><td><span class="tag t-ok">✅ 正常</span></td><td>全量重写 + 原子 rename；今日手动重跑后 PG↔CSV 对账全绿</td></tr>
+<tr><td>GitHub 备份</td><td><span class="tag t-ok">✅ 正常</span></td><td>昨日 push 7817 files 成功（git 3 次重试机制在工作）</td></tr>
+<tr><td>飞书告警</td><td><span class="tag t-ok">✅ 正常</span></td><td>日报/告警推送成功（Interactive Card）</td></tr>
+<tr><td>因子链路</td><td><span class="tag t-ok">✅ 正常</span></td><td>daily_basic → factor_value → crowding → lgbm_signal 每日增量</td></tr>
+</table>
+
+<!-- ═══════════ 第三方核对 ═══════════ -->
+<h2>三、数据正确性 Double Check（第三方独立源）</h2>
+<p class="small">方法：抽样比对。核对源与摄入源完全独立（在库 A股/ETF/指数源=tushare，用<b>东财/新浪/腾讯</b>核对；港股源=akshare新浪，用<b>东财/腾讯</b>核对；CPI 用统计局口径复核）。价格均为不复权口径，容差 0.5%~1%。</p>
+<table>
+<tr><th>数据域</th><th>抽样设计</th><th>第三方源</th><th>结果</th></tr>
+<tr><td>A股 · 最近交易日</td><td>10 只随机 × OHLC/涨跌幅/成交量（09-11）</td><td>东财</td><td><span class="tag t-ok">60 项全 PASS</span> 偏差 0.0%</td></tr>
+<tr><td>A股 · 历史锚点</td><td>600519/000001@2015、601318/600036@2018、300750/000858@2020、688981/601899@2023</td><td>新浪（不复权）</td><td><span class="tag t-ok">32 项全 PASS</span> 偏差 0.0%</td></tr>
+<tr><td>指数</td><td>沪深300 / 创业板指 最近 2 交易日 OHLC</td><td>腾讯</td><td><span class="tag t-ok">16 项全 PASS</span></td></tr>
+<tr><td>ETF</td><td>510300 沪深300ETF 最近 2 日 OHLC</td><td>腾讯</td><td><span class="tag t-ok">8 项 PASS</span>（另有 2 只小 ETF 东财限流未完成，建议 L3 自动化后常态覆盖）</td></tr>
+<tr><td>港股</td><td>00700 腾讯 / 00066 东财，各最近 2 日</td><td>腾讯 + 东财</td><td><span class="tag t-ok">16 项全 PASS</span></td></tr>
+<tr><td>宏观 CPI</td><td>最近 3 个月同比（2026-06/07/08）</td><td>统计局（akshare）</td><td><span class="tag t-ok">3 项全 PASS</span></td></tr>
+<tr><td>财报</td><td>贵州茅台 2023 年报</td><td>公开年报数字</td><td><span class="tag t-ok">PASS</span> 营收 1505.60 亿 / 归母净利 747.34 亿，与年报完全一致（单位：元）</td></tr>
+</table>
+<div class="card" style="border-left:4px solid var(--green)">
+  <p><b>结论：在库数据的"值"是正确的。</b>唯一注意点：财报表金额单位为<b>元</b>（tushare 原始口径），做亿元级分析时记得 /1e8。</p>
+</div>
+
+<!-- ═══════════ 问题清单与修复方案 ═══════════ -->
+<h2>四、发现的问题与修复方案</h2>
+
+<h3><span class="tag t-err">P1</span> 退市股历史行情缺口（约 1600 只，2016 年→退市日）</h3>
+<div class="card p1">
+  <p><b>证据：</b></p>
+  <ul>
+    <li>000005.SZ ST星源(退)：真实退市日 <b>2024-04-26</b>，但 PG 日线止于 <b>2015-12-31</b> → 缺 8.3 年</li>
+    <li>000018.SZ 神城A退：退市 2020-01-07，数据止于 2015-12-31 → 缺 4 年</li>
+    <li>002781.SZ 奇信退：2015 上市、2023 退市，PG 仅 <b>8 行</b>日线</li>
+    <li>L1 报告：「已退市但数据未到退市日 273 只」+ freshness「往年 375 只」+ CSV 落后文件 1631 个（差额 1100~1342 行/只 ≈ 5 年交易日数，口径吻合）</li>
+  </ul>
+  <p><b>影响：</b>退市股在退市前最后几年的行情缺失 → 回测时这些股票在缺失区间的收益不可计算，产生<b>幸存者偏差</b>（对因子/组合回测的尾部风险低估）。</p>
+  <p><b>背景：</b>2026-09-12 上午手动回补了 2010-2015 段（≈25-30 万行，1631 个文件差即源于此，且因此 CSV 曾落后 PG —— 已重导对齐）。但 <b>2016→退市日区间仍未补</b>。</p>
+  <p><b>修复方案（一次性 backfill_delisted.py）：</b></p>
+  <ol>
+    <li>从 <code>stocks</code> 取 <code>delist_date IS NOT NULL</code> 全部标的，联 <code>daily_quote</code> MAX(trade_date) 算出缺口区间 [MAX+1, delist_date]；</li>
+    <li>tushare <code>pro_bar</code> 对退市股可用（含已摘牌），按区间逐只拉取 → 复用现有 staging + ON CONFLICT upsert 写入；tushare 拉不到的用 akshare 东财港股/A股接口兜底；</li>
+    <li>分批跑（每批 100 只，断点续传：跑前先查 PG MAX），预计 1600 只 × 平均 4 年 ≈ 160 万行；</li>
+    <li>跑完执行 <code>scripts/export.py</code> 重导 CSV + <code>validate.py</code> 验证「已退市但数据未到退市日」应降到个位数；</li>
+    <li>财报同理：把退市股纳入 <code>backfill_financial.py</code> 的回补范围（当前 2010-2025 有 43,651 个 (股,年) 财报组合不足 4 份，其中大量是退市股）。</li>
+  </ol>
+</div>
+
+<h3><span class="tag t-ok">已修复</span> 本轮诊断中发现并已处理的两项</h3>
+<div class="card fix">
+  <ul>
+    <li><b>CSV 落后 PG 1631 个文件</b>（今天上午手动改 PG 后未重导）→ 已跑 <code>scripts/export.py</code> 重导，reconcile 复核 <b>PG↔CSV 行数全一致、抽样内容比对全一致</b>。⚠️ 注意：这批更新的 CSV 尚未 git commit，下个交易日 pipeline 会自动提交；<b>防复发规则：今后绕过 pipeline 动 PG 后必须跑 scripts/export.py</b>。</li>
+    <li><b>build_nav.py 每日失败</b>（<code>trade_log</code> 无 <code>strategy_id</code> 列）→ 工作区已有修复（改为从 signal_log JOIN），本次实测跑通（prod_6f_eq 净值重建成功）。该修复尚未 commit，注意随下批一起提交。</li>
+  </ul>
+</div>
+
+<h3><span class="tag t-warn">P2</span> 待观察 / 小缺口</h3>
+<div class="card p2">
+  <ul>
+    <li><b>A股 stale 7 只</b>（600825 新华传媒、000016 *ST康佳A、002731 *ST萃华等）：疑似停牌，建议对照停牌公告确认；若是数据断档则纳入补数。</li>
+    <li><b>无日线 20 只</b>（11 只 A股退市股 + 9 只港股）：A 股部分随 P1 修复；港股为 akshare 源端无数据。</li>
+    <li><b>money_supply 落后 73 天</b>（最新 2026-07）：8 月金融数据央行发布窗口为 9/11-13，属发布节奏边界，9/15 前后自动好转；若 9/20 后仍滞后再查 fetch_macro 源。</li>
+    <li><b>港股 188 只滞后</b>：akshare 源端小盘股断档，属已知特性，不建议修。</li>
+  </ul>
+</div>
+
+<h3><span class="tag t-info">P3</span> 已知源特性（无需修复，记录在案）</h3>
+<div class="card" style="border-left:4px solid var(--blue)">
+  <ul>
+    <li>A股 pre_close 缺失 44,098 行、港股 3,750 行（历史源特性，pct_chg 列不受影响）</li>
+    <li>港股 pct_chg 与价格不自洽 14,834 行（低价股 2 位小数报价精度，收益率请用 pct_chg 列）</li>
+    <li>cashflow 2001-2009 大面积缺失（2007 年有 3,045 只缺失，源端早年现金流覆盖差）</li>
+    <li>有成交量但无成交额 14 行</li>
+  </ul>
+</div>
+
+<!-- ═══════════ validate.py 优化方案 ═══════════ -->
+<h2>五、validate.py 优化方案</h2>
+<p>先说结论：<b>脚本结构清晰、检查维度设计合理（制度感知的涨跌停、源特性豁免、missing-report 闭环都做得很好），有优化空间但不是重写</b>。分三块：性能、覆盖缺口（重点）、可运维性。</p>
+
+<h3>A. 覆盖缺口（最有价值，建议优先做）</h3>
+<table>
+<tr><th>#</th><th>缺口</th><th>现状问题</th><th>优化方案</th></tr>
+<tr><td>1</td><td><b>中间断档无感知</b></td><td>check_daily_per_stock 只看首/末日期。若某股 2018-03~2018-09 整段缺失，首末都正常，<b>完全检测不到</b>。本次手动回补的 2010-2015 数据质量也无法用现有质检验证。</td><td>新增 <code>check_gap()</code>：per-symbol JOIN trade_cal 找工作日缺口（<code>generate_series</code> 或 <code>trade_cal - daily_quote</code> 反连接）。全量跑重，可只对 2015+ 或 top 市值标的做，或者作为 <code>--deep</code> 模式周度跑。</td></tr>
+<tr><td>2</td><td><b>trade_year 分区键一致性</b></td><td>daily_quote 按年分表，若写入时 trade_year 算错，同一 (ts_code, trade_date) 会跨分区出现逻辑重复，现有检查发现不了。</td><td>加一条轻量检查：<code>SELECT COUNT(*) FROM daily_quote WHERE EXTRACT(YEAR FROM trade_date)::int <> trade_year</code>（可走索引，秒级）。应为 0。</td></tr>
+<tr><td>3</td><td><b>PG↔CSV 对账只在周六</b></td><td>本轮"手动改 PG 忘重导 CSV"正是靠周六 L2 才发现；若发生在周日，要滞后近一周。</td><td>L1 每日加<b>抽样 50 文件行数对账</b>（PG count vs CSV 行数），秒级完成；L2 保留全量。</td></tr>
+<tr><td>4</td><td><b>ETF/指数无逐标检查</b></td><td>etf_quote / index_daily 只查全表 MAX(trade_date)，单只 ETF 断更发现不了。</td><td>逐标连续性检查扩展到两表（逻辑与 daily_quote 相同，可用同一函数参数化）。</td></tr>
+<tr><td>5</td><td><b>expected_start 形同虚设</b></td><td>参数接了但 check_table_ranges 从不比较 MIN(date)，覆盖起点不足不会告警。</td><td>补一条：MIN(trade_date) > expected_start-01-01 时 WARN「覆盖起点晚于预期」。</td></tr>
+<tr><td>6</td><td>财报检查粒度</td><td>cashflow「653 只缺整年」混在一起，早年源特性与真实缺失不分。</td><td>缺整年明细按年份分布输出；2010+ 且缺整年的优先级高于早年。</td></tr>
+</table>
+
+<h3>B. 性能（89.7s → 预计 ~35s）</h3>
+<table>
+<tr><th>#</th><th>现状</th><th>方案</th></tr>
+<tr><td>7</td><td>check_daily_per_stock（全表 GROUP BY MIN/MAX/COUNT）与 check_daily_freshness（又一次全表 GROUP BY MAX）— 同样的全表聚合跑了<b>两遍</b>，占耗时大头</td><td>合并为一条 CTE：<code>WITH agg AS (SELECT ts_code, MIN, MAX, COUNT FROM daily_quote GROUP BY 1)</code>，逐标连续性和新鲜度分布共用一次聚合，省约 30-40s。</td></tr>
+<tr><td>8</td><td>check_ohlc_quality 三条独立全表扫（负价 / high&lt;low / NULL）</td><td>合并为一条 <code>SUM(CASE...)</code> 单扫。</td></tr>
+<tr><td>9</td><td>pct_chg 自洽检查全表扫描，但 2015 前只是"统计记录"</td><td>2015+ 走分区裁剪主查；2015 前降频为周度或干脆并入 L2。</td></tr>
+<tr><td>10</td><td>8619 标的逐行 Python 循环分档</td><td>改 SQL CASE 聚合（次要，Python 循环 8k 行本身不慢，顺手即可）。</td></tr>
+</table>
+
+<h3>C. 可运维性</h3>
+<table>
+<tr><th>#</th><th>建议</th></tr>
+<tr><td>11</td><td><b>校验结果历史化</b>：每次运行 append 一行摘要到 <code>logs/validate_history.jsonl</code>（时间、errs/warns/stale 数）。趋势可见后，"stale 周环比"这类退化能在告警前肉眼发现，也能自动回答"上次全绿是什么时候"。</td></tr>
+<tr><td>12</td><td><b>L3 cross_validate 自动化</b>：加进 pipeline 周五收盘后（或交易日 18:30 尾部），腾讯快照接口当前实测可用；同时把本次诊断的"历史锚点"模式（新浪不复权 K 线抽样）做成 <code>--anchor</code> 选项，月度跑一次覆盖 2015/2018/2020/2023 等锚点。东财接口限流严重（本轮多轮 SKIP 的原因），建议 L3 自动化用腾讯/新浪，不要依赖东财。</td></tr>
+<tr><td>13</td><td>freshness「往年 375 只」自动对照 stocks.delist_date 细分为「退市股/异常滞留」，ERR 数会随 P1 修复下降，趋势更干净。</td></tr>
+<tr><td>14</td><td>财报金额 sanity（利润表 total_revenue ≤ 0 行计数、净利润 NULL 计数）——与 L2 的净利率 flag 呼应。</td></tr>
+</table>
+
+<!-- ═══════════ 行动清单 ═══════════ -->
+<h2>六、建议行动顺序</h2>
+<div class="card">
+  <ol>
+    <li><b>本周内</b>：跑一次性 <code>backfill_delisted.py</code> 补退市股 2016→退市日行情（P1，对回测正确性影响最大）→ 重导 CSV → validate 验证。</li>
+    <li><b>顺手提交</b>：build_nav.py 修复 + 本轮 CSV 更新，随下个交易日 pipeline 自动 commit（或手动 commit 一次）。</li>
+    <li><b>validate.py 改造</b>：优先做 A-1 中间断档检测 + A-3 每日抽样对账 + B-7 双聚合合并（工作量约半天）。</li>
+    <li><b>L3 自动化</b>（C-12）：腾讯源纳入 pipeline 周五跑，历史锚点月度跑。</li>
+    <li><b>核对 A股 stale 7 只</b>是否停牌（P2）。</li>
+  </ol>
+</div>
+
+<p class="small" style="margin-top:24px">附：诊断原始数据 —— L1 报告 /tmp/validate_report.json、第三方核对明细 /tmp/double_check_results*.json、重导日志 /tmp/export_rerun.log。诊断过程中执行过的写操作：scripts/export.py 重导（修复 CSV 落后）、build_nav.py 验证运行。</p>
+
+</div>
+</body>
+</html>

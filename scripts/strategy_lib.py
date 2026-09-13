@@ -97,3 +97,96 @@ def select_stocks(score: pd.Series, top_n: int, window=None):
         eligible = pct[(pct >= window[0] / 100) & (pct <= window[1] / 100)].index
         ranked = ranked[ranked.index.isin(eligible)]
     return list(ranked.head(top_n).index), ranked
+
+
+def load_recent_returns(conn, ts_codes: list, days: int = 60) -> pd.DataFrame:
+    """近 N 交易日日收益宽表 (index=交易日, columns=ts_code), 供协方差估计。"""
+    if not ts_codes:
+        return pd.DataFrame()
+    import numpy as np  # noqa: F401
+    ph = ",".join(["%s"] * len(ts_codes))
+    cur = conn.cursor()
+    cur.execute(f"SELECT trade_date, ts_code, pct_chg FROM daily_quote "
+                f"WHERE ts_code IN ({ph}) AND trade_date >= (CURRENT_DATE - %s) "
+                f"ORDER BY trade_date", (*ts_codes, days + 30))
+    df = pd.DataFrame(cur.fetchall(), columns=["trade_date", "ts_code", "pct_chg"])
+    cur.close()
+    if df.empty:
+        return pd.DataFrame()
+    df["pct_chg"] = pd.to_numeric(df["pct_chg"], errors="coerce") / 100.0
+    wide = df.pivot(index="trade_date", columns="ts_code", values="pct_chg").sort_index()
+    return wide.tail(days)
+
+
+def renormalize_with_cap(w: pd.Series, cap: float = 0.10) -> pd.Series:
+    """剔除低权重持仓后的再归一化, 同时保持单票上限 (water-filling 投影)。
+    简单 w/w.sum() 会因剔除放大剩余权重导致轻微超 cap, 此处迭代压回。"""
+    import numpy as np
+    w = w.astype(float).copy()
+    if w.sum() <= 0:
+        return w
+    for _ in range(50):
+        over = w > cap
+        if not over.any():
+            break
+        excess = float((w[over] - cap).sum())
+        w[over] = cap
+        free = ~over
+        fs = float(w[free].sum())
+        if fs > 0:
+            w[free] += excess * w[free] / fs
+        else:
+            break
+    w = w / w.sum()
+    # 投影后仍可能因浮点轻微超 cap → 最后硬截一次再归一 (偏差 <1e-9)
+    w = w.clip(upper=cap)
+    return w / w.sum()
+
+
+def optimize_weights(hist: pd.DataFrame, scheme: str, cap: float = 0.10) -> pd.Series:
+    """风险端加权 (在排序选出的持仓内), 前提=排序可靠/幅度不可靠 → 不做 MVO 收益项。
+    hist: (dates × stocks) 历史日收益; scheme: equal/inv_vol/min_var/risk_parity。
+    cap: 单票权重上限 (min_var 用, None=无上限)。返回权重 Series (和=1, 非负, 单票≤cap)。"""
+    import numpy as np
+    n = hist.shape[1]
+    cols = hist.columns.tolist()
+    if scheme == "equal" or n == 0:
+        return pd.Series(np.ones(n) / n, index=cols)
+    rets = hist.fillna(0.0).to_numpy(dtype=np.float64)
+    sig = rets.std(axis=0)
+    if scheme == "inv_vol":
+        iv = np.where(sig > 1e-8, 1.0 / sig, 0.0)
+        w = iv / iv.sum() if iv.sum() > 0 else np.ones(n) / n
+        return pd.Series(w, index=cols)
+    try:
+        from sklearn.covariance import LedoitWolf
+        cov = LedoitWolf().fit(rets).covariance_
+    except Exception:
+        cov = np.cov(rets, rowvar=False) + 1e-6 * np.eye(n)
+    if scheme == "min_var":
+        from scipy.optimize import minimize
+        def obj(w):
+            return float(w @ cov @ w)
+        cons = [{"type": "eq", "fun": lambda w: w.sum() - 1.0}]
+        bnds = [(0.0, cap)] * n
+        res = minimize(obj, np.ones(n) / n, method="SLSQP", bounds=bnds,
+                       constraints=cons, options={"maxiter": 300, "ftol": 1e-12})
+        w = res.x if res.success else np.ones(n) / n
+        w = np.maximum(w, 0.0)
+        w = w / w.sum() if w.sum() > 0 else np.ones(n) / n
+        return pd.Series(w, index=cols)
+    if scheme == "risk_parity":
+        w = np.ones(n) / n
+        for _ in range(50):
+            marg = cov @ w
+            sig_p = float(np.sqrt(w @ marg))
+            if sig_p <= 1e-12:
+                break
+            rc = w * marg / sig_p
+            target = sig_p / n
+            scale = np.sqrt(np.where(rc > 1e-12, target / rc, 1.0))
+            w = w * scale
+            w = np.maximum(w, 0.0)
+            w = w / w.sum()
+        return pd.Series(w, index=cols)
+    return pd.Series(np.ones(n) / n, index=cols)

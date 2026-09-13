@@ -147,6 +147,9 @@ def step_factor(cron: bool = False) -> bool:
     r3 = run([PY, str(REPO / "scripts" / "crowding_monitor.py")], timeout=1200, cron=cron)
     if r3.returncode != 0:
         log(f"拥挤度监控失败 (exit={r3.returncode}): {r3.stderr[-300:]}", "WARN", cron)
+    r4 = run([PY, str(REPO / "scripts" / "compute_lgbm_signal.py")], timeout=1200, cron=cron)
+    if r4.returncode != 0:
+        log(f"LGBM 合成因子更新失败 (exit={r4.returncode}): {r4.stderr[-300:]}", "WARN", cron)
     return True
 
 
@@ -163,6 +166,9 @@ def step_signals(cron: bool = False) -> bool:
     r2b = run([PY, str(REPO / "scripts" / "build_nav.py")], timeout=600, cron=cron)
     if r2b.returncode != 0:
         log(f"净值重建失败 (exit={r2b.returncode}): {r2b.stderr[-300:]}", "WARN", cron)
+    r2c = run([PY, str(REPO / "scripts" / "benchmark_track.py"), "--push"], timeout=600, cron=cron)
+    if r2c.returncode != 0:
+        log(f"基准对照失败 (exit={r2c.returncode}): {r2c.stderr[-300:]}", "WARN", cron)
     r3 = run([PY, str(REPO / "scripts" / "daily_review.py"), "--push",
               "--out", str(REPO / "reports" / "daily_review.md")], timeout=900, cron=cron)
     if r3.returncode != 0:

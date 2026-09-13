@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>A股二十年十倍股全景解剖（2006-2026）</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --ink: #1c2333; --sub: #5a6478;
+    --accent: #c0392b; --accent2: #2c5f8a; --pos: #c0392b; --neg: #1a7a4a;
+    --line: #e4e7ee; --chip: #eef2f7;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         background: var(--bg); color: var(--ink); line-height: 1.7; padding: 24px; }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+  header { background: linear-gradient(135deg, #232a3d 0%, #3d3450 100%); color: #fff;
+           border-radius: 14px; padding: 34px 38px; margin-bottom: 20px; }
+  header h1 { font-size: 26px; margin-bottom: 8px; }
+  header .meta { color: #b8bfd4; font-size: 13px; }
+  .hero { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin: 22px 0 4px; }
+  .hero .cell { background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.14);
+               border-radius: 10px; padding: 14px 16px; }
+  .hero .v { font-size: 26px; font-weight: 700; }
+  .hero .k { font-size: 12px; color: #b8bfd4; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+            padding: 26px 30px; margin-bottom: 20px; }
+  h2 { font-size: 19px; padding-bottom: 10px; border-bottom: 2px solid var(--line); margin-bottom: 18px; }
+  h2 .no { color: var(--accent); margin-right: 8px; }
+  h3 { font-size: 15px; margin: 18px 0 10px; color: var(--accent2); }
+  p { margin: 8px 0; color: var(--ink); }
+  .sub { color: var(--sub); font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 10px 0; }
+  th { background: var(--chip); text-align: center; padding: 8px 10px; font-weight: 600; white-space: nowrap; }
+  td { padding: 6px 10px; border-bottom: 1px solid var(--line); text-align: center; white-space: nowrap; }
+  td.l { text-align: left; }
+  td.num { font-variant-numeric: tabular-nums; }
+  .neg { color: var(--neg); }
+  .pos { color: var(--pos); }
+  .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  .chart { height: 340px; width: 100%; }
+  .chart-full { height: 360px; width: 100%; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .card { background: var(--chip); border-radius: 10px; padding: 16px 18px; }
+  .card h4 { font-size: 14px; margin-bottom: 8px; }
+  .card ul { padding-left: 18px; font-size: 13px; }
+  .card li { margin: 4px 0; }
+  .fold { max-height: 430px; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; }
+  .fold table { margin: 0; }
+  .tag { display: inline-block; background: var(--chip); border-radius: 5px; padding: 1px 8px;
+         font-size: 12px; margin: 2px; }
+  .concl { border-left: 4px solid var(--accent); background: #fdf6f5; padding: 14px 18px;
+           border-radius: 0 8px 8px 0; margin: 12px 0; }
+  .concl b { color: var(--accent); }
+  footer { text-align: center; color: var(--sub); font-size: 12px; padding: 16px 0 30px; }
+  @media (max-width: 760px) { .charts, .grid2 { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>📊 A股二十年十倍股全景解剖</h1>
+  <div class="meta">窗口 2006-09-12 → 2026-09-11 ｜ 起点 1348 只（2006-09 前已上市，含后来退市者）｜ 数据：本地 PostgreSQL（tushare 口径，复权收益）｜ 生成于 2026-09-12 10:53</div>
+  <div class="hero">
+    <div class="cell"><div class="v">1,348</div><div class="k">起点样本</div></div>
+    <div class="cell"><div class="v">168</div><div class="k">终值≥10x（12.5%）</div></div>
+    <div class="cell"><div class="v">504</div><div class="k">曾摸到≥10x（37.4%）</div></div>
+    <div class="cell"><div class="v">336</div><div class="k">坐了过山车（占曾达 67%）</div></div>
+  </div>
+</header>
+
+<section>
+  <h2><span class="no">壹</span>一句话结论</h2>
+  <div class="concl">
+    二十年窗口里，<b>每 8 只股票就有 1 只（12.5%）终值十倍</b>——是十年窗口（0.76%）的 <b>16 倍</b>；但<b>每 3 只曾摸到 10x 的股票，有 2 只会把它还回去</b>（336/504）。
+    时间是十倍股最大的盟友，<b>起点时它们几乎没有任何可识别的极端特征</b>（PE 分位 44 / 市值分位 43 / ROE 分位 59，全部"中间偏上"）——
+    二十倍股是被「活着 + 多轮产业周期 + 盈利增长 22 倍」熬出来的，不是被起点财务选出来的。
+  </div>
+  <p class="sub">口径说明：月度复权净值（pct_chg 连乘，已验证含除权修正）；「曾达」= 任意月末净值 ≥10x；退市股以最后真实交易月定格（曾达统计包含退市者，无幸存者偏差）。</p>
+</section>
+
+<section>
+  <h2><span class="no">贰</span>名单：终值 ≥10x 的 168 只</h2>
+  <p>前三名：<b>格力电器 70.4x</b>、浪潮信息 69.3x、贵州茅台 66.8x。Top 30：</p>
+  <table>
+    <tr><th>#</th><th>名称</th><th>行业</th><th>终值</th><th>历史峰值</th><th>首次10x</th><th>起点PE</th><th>起点PB</th><th>市值(亿)</th><th>起点ROE%</th><th>净利倍数</th></tr>
+    <tr><td>1</td><td class='l'>格力电器</td><td class='l'>家用电器</td><td class='num'><b>70.4x</b></td><td class='num'>86x</td><td>2011-06</td><td class='num'>8</td><td class='num'>1.58</td><td class='num'>43</td><td class='num'>19.7</td><td class='num'>57x</td></tr>
+<tr><td>2</td><td class='l'>浪潮信息</td><td class='l'>IT设备</td><td class='num'><b>69.3x</b></td><td class='num'>84x</td><td>2014-05</td><td class='num'>147</td><td class='num'>1.33</td><td class='num'>12</td><td class='num'>0.9</td><td class='num'>288x</td></tr>
+<tr><td>3</td><td class='l'>贵州茅台</td><td class='l'>白酒</td><td class='num'><b>66.8x</b></td><td class='num'>92x</td><td>2016-05</td><td class='num'>18</td><td class='num'>4.06</td><td class='num'>207</td><td class='num'>24.2</td><td class='num'>74x</td></tr>
+<tr><td>4</td><td class='l'>藏格矿业</td><td class='l'>农药化肥</td><td class='num'><b>66.2x</b></td><td class='num'>72x</td><td>2015-04</td><td class='num'>—</td><td class='num'>0.95</td><td class='num'>3</td><td class='num'>-26.1</td><td class='num'>-40x</td></tr>
+<tr><td>5</td><td class='l'>新和成</td><td class='l'>化学制药</td><td class='num'><b>63.7x</b></td><td class='num'>74x</td><td>2008-05</td><td class='num'>15</td><td class='num'>1.22</td><td class='num'>9</td><td class='num'>8.2</td><td class='num'>111x</td></tr>
+<tr><td>6</td><td class='l'>中航沈飞</td><td class='l'>航空</td><td class='num'><b>56.9x</b></td><td class='num'>74x</td><td>2015-06</td><td class='num'>379</td><td class='num'>1.17</td><td class='num'>6</td><td class='num'>0.3</td><td class='num'>2413x</td></tr>
+<tr><td>7</td><td class='l'>古井贡酒</td><td class='l'>白酒</td><td class='num'><b>55.6x</b></td><td class='num'>131x</td><td>2010-07</td><td class='num'>241</td><td class='num'>1.52</td><td class='num'>12</td><td class='num'>0.6</td><td class='num'>698x</td></tr>
+<tr><td>8</td><td class='l'>中国巨石</td><td class='l'>玻璃</td><td class='num'><b>53.9x</b></td><td class='num'>85x</td><td>2017-10</td><td class='num'>21</td><td class='num'>3.49</td><td class='num'>26</td><td class='num'>18.0</td><td class='num'>27x</td></tr>
+<tr><td>9</td><td class='l'>三花智控</td><td class='l'>家用电器</td><td class='num'><b>52.4x</b></td><td class='num'>84x</td><td>2015-05</td><td class='num'>20</td><td class='num'>2.32</td><td class='num'>9</td><td class='num'>16.6</td><td class='num'>91x</td></tr>
+<tr><td>10</td><td class='l'>思源电气</td><td class='l'>电气设备</td><td class='num'><b>52.0x</b></td><td class='num'>76x</td><td>2021-03</td><td class='num'>28</td><td class='num'>5.41</td><td class='num'>24</td><td class='num'>20.7</td><td class='num'>37x</td></tr>
+<tr><td>11</td><td class='l'>恒瑞医药</td><td class='l'>化学制药</td><td class='num'><b>47.4x</b></td><td class='num'>87x</td><td>2015-03</td><td class='num'>29</td><td class='num'>4.29</td><td class='num'>47</td><td class='num'>15.6</td><td class='num'>48x</td></tr>
+<tr><td>12</td><td class='l'>赤峰黄金</td><td class='l'>黄金</td><td class='num'><b>47.0x</b></td><td class='num'>50x</td><td>2015-05</td><td class='num'>—</td><td class='num'>3.45</td><td class='num'>5</td><td class='num'>-83.5</td><td class='num'>-16x</td></tr>
+<tr><td>13</td><td class='l'>三安光电</td><td class='l'>半导体</td><td class='num'><b>46.0x</b></td><td class='num'>186x</td><td>2009-04</td><td class='num'>—</td><td class='num'>—</td><td class='num'>—</td><td class='num'>—</td><td class='num'>2x</td></tr>
+<tr><td>14</td><td class='l'>北方稀土</td><td class='l'>小金属</td><td class='num'><b>45.3x</b></td><td class='num'>77x</td><td>2010-05</td><td class='num'>237</td><td class='num'>2.70</td><td class='num'>31</td><td class='num'>1.1</td><td class='num'>172x</td></tr>
+<tr><td>15</td><td class='l'>恒力石化</td><td class='l'>石油加工</td><td class='num'><b>44.6x</b></td><td class='num'>65x</td><td>2015-11</td><td class='num'>166</td><td class='num'>1.42</td><td class='num'>5</td><td class='num'>0.9</td><td class='num'>2562x</td></tr>
+<tr><td>16</td><td class='l'>长春高新</td><td class='l'>生物制药</td><td class='num'><b>42.9x</b></td><td class='num'>215x</td><td>2010-10</td><td class='num'>—</td><td class='num'>2.43</td><td class='num'>7</td><td class='num'>-18.2</td><td class='num'>-3x</td></tr>
+<tr><td>17</td><td class='l'>恒生电子</td><td class='l'>软件服务</td><td class='num'><b>42.0x</b></td><td class='num'>105x</td><td>2010-04</td><td class='num'>136</td><td class='num'>2.26</td><td class='num'>8</td><td class='num'>1.6</td><td class='num'>210x</td></tr>
+<tr><td>18</td><td class='l'>国睿科技</td><td class='l'>通信设备</td><td class='num'><b>41.5x</b></td><td class='num'>44x</td><td>2010-09</td><td class='num'>29</td><td class='num'>1.21</td><td class='num'>4</td><td class='num'>4.2</td><td class='num'>44x</td></tr>
+<tr><td>19</td><td class='l'>亨通光电</td><td class='l'>通信设备</td><td class='num'><b>41.3x</b></td><td class='num'>64x</td><td>2016-08</td><td class='num'>23</td><td class='num'>1.70</td><td class='num'>11</td><td class='num'>7.6</td><td class='num'>55x</td></tr>
+<tr><td>20</td><td class='l'>华工科技</td><td class='l'>专用机械</td><td class='num'><b>40.8x</b></td><td class='num'>65x</td><td>2015-05</td><td class='num'>47</td><td class='num'>2.35</td><td class='num'>17</td><td class='num'>5.0</td><td class='num'>42x</td></tr>
+<tr><td>21</td><td class='l'>片仔癀</td><td class='l'>中成药</td><td class='num'><b>37.7x</b></td><td class='num'>113x</td><td>2015-05</td><td class='num'>30</td><td class='num'>4.50</td><td class='num'>26</td><td class='num'>15.6</td><td class='num'>25x</td></tr>
+<tr><td>22</td><td class='l'>东阳光</td><td class='l'>综合类</td><td class='num'><b>37.1x</b></td><td class='num'>42x</td><td>2015-06</td><td class='num'>29</td><td class='num'>3.46</td><td class='num'>8</td><td class='num'>12.4</td><td class='num'>10x</td></tr>
+<tr><td>23</td><td class='l'>山西汾酒</td><td class='l'>白酒</td><td class='num'><b>36.5x</b></td><td class='num'>78x</td><td>2018-01</td><td class='num'>53</td><td class='num'>7.39</td><td class='num'>70</td><td class='num'>14.5</td><td class='num'>93x</td></tr>
+<tr><td>24</td><td class='l'>华新建材</td><td class='l'>水泥</td><td class='num'><b>36.1x</b></td><td class='num'>36x</td><td>2017-11</td><td class='num'>32</td><td class='num'>1.62</td><td class='num'>20</td><td class='num'>5.2</td><td class='num'>46x</td></tr>
+<tr><td>25</td><td class='l'>宇通客车</td><td class='l'>汽车整车</td><td class='num'><b>35.4x</b></td><td class='num'>43x</td><td>2015-01</td><td class='num'>12</td><td class='num'>1.76</td><td class='num'>22</td><td class='num'>15.0</td><td class='num'>30x</td></tr>
+<tr><td>26</td><td class='l'>生益科技</td><td class='l'>元器件</td><td class='num'><b>35.2x</b></td><td class='num'>38x</td><td>2020-02</td><td class='num'>33</td><td class='num'>5.21</td><td class='num'>71</td><td class='num'>16.1</td><td class='num'>16x</td></tr>
+<tr><td>27</td><td class='l'>永鼎股份</td><td class='l'>通信设备</td><td class='num'><b>34.9x</b></td><td class='num'>50x</td><td>2025-08</td><td class='num'>45</td><td class='num'>1.18</td><td class='num'>12</td><td class='num'>2.6</td><td class='num'>9x</td></tr>
+<tr><td>28</td><td class='l'>中天科技</td><td class='l'>通信设备</td><td class='num'><b>34.1x</b></td><td class='num'>56x</td><td>2015-05</td><td class='num'>35</td><td class='num'>1.37</td><td class='num'>8</td><td class='num'>4.0</td><td class='num'>123x</td></tr>
+<tr><td>29</td><td class='l'>山金国际</td><td class='l'>黄金</td><td class='num'><b>33.9x</b></td><td class='num'>37x</td><td>2015-04</td><td class='num'>28</td><td class='num'>2.00</td><td class='num'>18</td><td class='num'>7.3</td><td class='num'>46x</td></tr>
+<tr><td>30</td><td class='l'>兴业银锡</td><td class='l'>铅锌</td><td class='num'><b>32.0x</b></td><td class='num'>51x</td><td>2024-04</td><td class='num'>37</td><td class='num'>0.68</td><td class='num'>9</td><td class='num'>1.9</td><td class='num'>72x</td></tr>
+  </table>
+  <details>
+    <summary style="cursor:pointer;color:var(--accent2);font-size:13px;padding:6px 0;">▸ 展开全部 168 只（可滚动）</summary>
+    <div class="fold">
+    <table>
+      <tr><th>#</th><th>名称</th><th>行业</th><th>终值</th><th>历史峰值</th><th>首次10x</th><th>起点PE</th><th>起点PB</th><th>市值(亿)</th><th>起点ROE%</th><th>净利倍数</th></tr>
+      <tr><td>1</td><td class='l'>格力电器</td><td class='l'>家用电器</td><td class='num'><b>70.4x</b></td><td class='num'>86x</td><td>2011-06</td><td class='num'>8</td><td class='num'>1.58</td><td class='num'>43</td><td class='num'>19.7</td><td class='num'>57x</td></tr>
+<tr><td>2</td><td class='l'>浪潮信息</td><td class='l'>IT设备</td><td class='num'><b>69.3x</b></td><td class='num'>84x</td><td>2014-05</td><td class='num'>147</td><td class='num'>1.33</td><td class='num'>12</td><td class='num'>0.9</td><td class='num'>288x</td></tr>
+<tr><td>3</td><td class='l'>贵州茅台</td><td class='l'>白酒</td><td class='num'><b>66.8x</b></td><td class='num'>92x</td><td>2016-05</td><td class='num'>18</td><td class='num'>4.06</td><td class='num'>207</td><td class='num'>24.2</td><td class='num'>74x</td></tr>
+<tr><td>4</td><td class='l'>藏格矿业</td><td class='l'>农药化肥</td><td class='num'><b>66.2x</b></td><td class='num'>72x</td><td>2015-04</td><td class='num'>—</td><td class='num'>0.95</td><td class='num'>3</td><td class='num'>-26.1</td><td class='num'>-40x</td></tr>
+<tr><td>5</td><td class='l'>新和成</td><td class='l'>化学制药</td><td class='num'><b>63.7x</b></td><td class='num'>74x</td><td>2008-05</td><td class='num'>15</td><td class='num'>1.22</td><td class='num'>9</td><td class='num'>8.2</td><td class='num'>111x</td></tr>
+<tr><td>6</td><td class='l'>中航沈飞</td><td class='l'>航空</td><td class='num'><b>56.9x</b></td><td class='num'>74x</td><td>2015-06</td><td class='num'>379</td><td class='num'>1.17</td><td class='num'>6</td><td class='num'>0.3</td><td class='num'>2413x</td></tr>
+<tr><td>7</td><td class='l'>古井贡酒</td><td class='l'>白酒</td><td class='num'><b>55.6x</b></td><td class='num'>131x</td><td>2010-07</td><td class='num'>241</td><td class='num'>1.52</td><td class='num'>12</td><td class='num'>0.6</td><td class='num'>698x</td></tr>
+<tr><td>8</td><td class='l'>中国巨石</td><td class='l'>玻璃</td><td class='num'><b>53.9x</b></td><td class='num'>85x</td><td>2017-10</td><td class='num'>21</td><td class='num'>3.49</td><td class='num'>26</td><td class='num'>18.0</td><td class='num'>27x</td></tr>
+<tr><td>9</td><td class='l'>三花智控</td><td class='l'>家用电器</td><td class='num'><b>52.4x</b></td><td class='num'>84x</td><td>2015-05</td><td class='num'>20</td><td class='num'>2.32</td><td class='num'>9</td><td class='num'>16.6</td><td class='num'>91x</td></tr>
+<tr><td>10</td><td class='l'>思源电气</td><td class='l'>电气设备</td><td class='num'><b>52.0x</b></td><td class='num'>76x</td><td>2021-03</td><td class='num'>28</td><td class='num'>5.41</td><td class='num'>24</td><td class='num'>20.7</td><td class='num'>37x</td></tr>
+<tr><td>11</td><td class='l'>恒瑞医药</td><td class='l'>化学制药</td><td class='num'><b>47.4x</b></td><td class='num'>87x</td><td>2015-03</td><td class='num'>29</td><td class='num'>4.29</td><td class='num'>47</td><td class='num'>15.6</td><td class='num'>48x</td></tr>
+<tr><td>12</td><td class='l'>赤峰黄金</td><td class='l'>黄金</td><td class='num'><b>47.0x</b></td><td class='num'>50x</td><td>2015-05</td><td class='num'>—</td><td class='num'>3.45</td><td class='num'>5</td><td class='num'>-83.5</td><td class='num'>-16x</td></tr>
+<tr><td>13</td><td class='l'>三安光电</td><td class='l'>半导体</td><td class='num'><b>46.0x</b></td><td class='num'>186x</td><td>2009-04</td><td class='num'>—</td><td class='num'>—</td><td class='num'>—</td><td class='num'>—</td><td class='num'>2x</td></tr>
+<tr><td>14</td><td class='l'>北方稀土</td><td class='l'>小金属</td><td class='num'><b>45.3x</b></td><td class='num'>77x</td><td>2010-05</td><td class='num'>237</td><td class='num'>2.70</td><td class='num'>31</td><td class='num'>1.1</td><td class='num'>172x</td></tr>
+<tr><td>15</td><td class='l'>恒力石化</td><td class='l'>石油加工</td><td class='num'><b>44.6x</b></td><td class='num'>65x</td><td>2015-11</td><td class='num'>166</td><td class='num'>1.42</td><td class='num'>5</td><td class='num'>0.9</td><td class='num'>2562x</td></tr>
+<tr><td>16</td><td class='l'>长春高新</td><td class='l'>生物制药</td><td class='num'><b>42.9x</b></td><td class='num'>215x</td><td>2010-10</td><td class='num'>—</td><td class='num'>2.43</td><td class='num'>7</td><td class='num'>-18.2</td><td class='num'>-3x</td></tr>
+<tr><td>17</td><td class='l'>恒生电子</td><td class='l'>软件服务</td><td class='num'><b>42.0x</b></td><td class='num'>105x</td><td>2010-04</td><td class='num'>136</td><td class='num'>2.26</td><td class='num'>8</td><td class='num'>1.6</td><td class='num'>210x</td></tr>
+<tr><td>18</td><td class='l'>国睿科技</td><td class='l'>通信设备</td><td class='num'><b>41.5x</b></td><td class='num'>44x</td><td>2010-09</td><td class='num'>29</td><td class='num'>1.21</td><td class='num'>4</td><td class='num'>4.2</td><td class='num'>44x</td></tr>
+<tr><td>19</td><td class='l'>亨通光电</td><td class='l'>通信设备</td><td class='num'><b>41.3x</b></td><td class='num'>64x</td><td>2016-08</td><td class='num'>23</td><td class='num'>1.70</td><td class='num'>11</td><td class='num'>7.6</td><td class='num'>55x</td></tr>
+<tr><td>20</td><td class='l'>华工科技</td><td class='l'>专用机械</td><td class='num'><b>40.8x</b></td><td class='num'>65x</td><td>2015-05</td><td class='num'>47</td><td class='num'>2.35</td><td class='num'>17</td><td class='num'>5.0</td><td class='num'>42x</td></tr>
+<tr><td>21</td><td class='l'>片仔癀</td><td class='l'>中成药</td><td class='num'><b>37.7x</b></td><td class='num'>113x</td><td>2015-05</td><td class='num'>30</td><td class='num'>4.50</td><td class='num'>26</td><td class='num'>15.6</td><td class='num'>25x</td></tr>
+<tr><td>22</td><td class='l'>东阳光</td><td class='l'>综合类</td><td class='num'><b>37.1x</b></td><td class='num'>42x</td><td>2015-06</td><td class='num'>29</td><td class='num'>3.46</td><td class='num'>8</td><td class='num'>12.4</td><td class='num'>10x</td></tr>
+<tr><td>23</td><td class='l'>山西汾酒</td><td class='l'>白酒</td><td class='num'><b>36.5x</b></td><td class='num'>78x</td><td>2018-01</td><td class='num'>53</td><td class='num'>7.39</td><td class='num'>70</td><td class='num'>14.5</td><td class='num'>93x</td></tr>
+<tr><td>24</td><td class='l'>华新建材</td><td class='l'>水泥</td><td class='num'><b>36.1x</b></td><td class='num'>36x</td><td>2017-11</td><td class='num'>32</td><td class='num'>1.62</td><td class='num'>20</td><td class='num'>5.2</td><td class='num'>46x</td></tr>
+<tr><td>25</td><td class='l'>宇通客车</td><td class='l'>汽车整车</td><td class='num'><b>35.4x</b></td><td class='num'>43x</td><td>2015-01</td><td class='num'>12</td><td class='num'>1.76</td><td class='num'>22</td><td class='num'>15.0</td><td class='num'>30x</td></tr>
+<tr><td>26</td><td class='l'>生益科技</td><td class='l'>元器件</td><td class='num'><b>35.2x</b></td><td class='num'>38x</td><td>2020-02</td><td class='num'>33</td><td class='num'>5.21</td><td class='num'>71</td><td class='num'>16.1</td><td class='num'>16x</td></tr>
+<tr><td>27</td><td class='l'>永鼎股份</td><td class='l'>通信设备</td><td class='num'><b>34.9x</b></td><td class='num'>50x</td><td>2025-08</td><td class='num'>45</td><td class='num'>1.18</td><td class='num'>12</td><td class='num'>2.6</td><td class='num'>9x</td></tr>
+<tr><td>28</td><td class='l'>中天科技</td><td class='l'>通信设备</td><td class='num'><b>34.1x</b></td><td class='num'>56x</td><td>2015-05</td><td class='num'>35</td><td class='num'>1.37</td><td class='num'>8</td><td class='num'>4.0</td><td class='num'>123x</td></tr>
+<tr><td>29</td><td class='l'>山金国际</td><td class='l'>黄金</td><td class='num'><b>33.9x</b></td><td class='num'>37x</td><td>2015-04</td><td class='num'>28</td><td class='num'>2.00</td><td class='num'>18</td><td class='num'>7.3</td><td class='num'>46x</td></tr>
+<tr><td>30</td><td class='l'>兴业银锡</td><td class='l'>铅锌</td><td class='num'><b>32.0x</b></td><td class='num'>51x</td><td>2024-04</td><td class='num'>37</td><td class='num'>0.68</td><td class='num'>9</td><td class='num'>1.9</td><td class='num'>72x</td></tr>
+<tr><td>31</td><td class='l'>中稀有色</td><td class='l'>小金属</td><td class='num'><b>32.0x</b></td><td class='num'>44x</td><td>2010-05</td><td class='num'>—</td><td class='num'>8.31</td><td class='num'>5</td><td class='num'>-141.7</td><td class='num'>-0x</td></tr>
+<tr><td>32</td><td class='l'>扬农化工</td><td class='l'>农药化肥</td><td class='num'><b>31.6x</b></td><td class='num'>50x</td><td>2015-04</td><td class='num'>21</td><td class='num'>2.31</td><td class='num'>9</td><td class='num'>11.3</td><td class='num'>30x</td></tr>
+<tr><td>33</td><td class='l'>三一重工</td><td class='l'>工程机械</td><td class='num'><b>30.5x</b></td><td class='num'>52x</td><td>2010-09</td><td class='num'>30</td><td class='num'>3.09</td><td class='num'>64</td><td class='num'>10.9</td><td class='num'>39x</td></tr>
+<tr><td>34</td><td class='l'>科达制造</td><td class='l'>专用机械</td><td class='num'><b>30.2x</b></td><td class='num'>37x</td><td>2009-11</td><td class='num'>12</td><td class='num'>1.02</td><td class='num'>5</td><td class='num'>8.9</td><td class='num'>33x</td></tr>
+<tr><td>35</td><td class='l'>海尔智家</td><td class='l'>家用电器</td><td class='num'><b>29.5x</b></td><td class='num'>40x</td><td>2014-01</td><td class='num'>22</td><td class='num'>0.95</td><td class='num'>53</td><td class='num'>4.2</td><td class='num'>82x</td></tr>
+<tr><td>36</td><td class='l'>福耀玻璃</td><td class='l'>汽车配件</td><td class='num'><b>29.5x</b></td><td class='num'>36x</td><td>2017-10</td><td class='num'>18</td><td class='num'>3.13</td><td class='num'>69</td><td class='num'>19.5</td><td class='num'>24x</td></tr>
+<tr><td>37</td><td class='l'>巨化股份</td><td class='l'>化工原料</td><td class='num'><b>29.1x</b></td><td class='num'>43x</td><td>2011-06</td><td class='num'>14</td><td class='num'>1.67</td><td class='num'>27</td><td class='num'>12.2</td><td class='num'>20x</td></tr>
+<tr><td>38</td><td class='l'>浙江东日</td><td class='l'>区域地产</td><td class='num'><b>28.6x</b></td><td class='num'>43x</td><td>2015-06</td><td class='num'>42</td><td class='num'>1.58</td><td class='num'>6</td><td class='num'>3.8</td><td class='num'>10x</td></tr>
+<tr><td>39</td><td class='l'>山东黄金</td><td class='l'>黄金</td><td class='num'><b>28.5x</b></td><td class='num'>39x</td><td>2009-10</td><td class='num'>48</td><td class='num'>6.74</td><td class='num'>42</td><td class='num'>15.0</td><td class='num'>54x</td></tr>
+<tr><td>40</td><td class='l'>旭光电子</td><td class='l'>元器件</td><td class='num'><b>26.5x</b></td><td class='num'>38x</td><td>2015-05</td><td class='num'>—</td><td class='num'>1.61</td><td class='num'>5</td><td class='num'>-11.4</td><td class='num'>-4x</td></tr>
+<tr><td>41</td><td class='l'>恒逸石化</td><td class='l'>化纤</td><td class='num'><b>26.0x</b></td><td class='num'>29x</td><td>2010-10</td><td class='num'>—</td><td class='num'>2.70</td><td class='num'>5</td><td class='num'>-9.7</td><td class='num'>-14x</td></tr>
+<tr><td>42</td><td class='l'>大族激光</td><td class='l'>专用机械</td><td class='num'><b>25.8x</b></td><td class='num'>38x</td><td>2017-06</td><td class='num'>36</td><td class='num'>4.94</td><td class='num'>22</td><td class='num'>14.1</td><td class='num'>20x</td></tr>
+<tr><td>43</td><td class='l'>国电南瑞</td><td class='l'>电气设备</td><td class='num'><b>25.3x</b></td><td class='num'>28x</td><td>2015-03</td><td class='num'>49</td><td class='num'>6.93</td><td class='num'>51</td><td class='num'>14.7</td><td class='num'>81x</td></tr>
+<tr><td>44</td><td class='l'>通策医疗</td><td class='l'>医疗保健</td><td class='num'><b>24.8x</b></td><td class='num'>178x</td><td>2014-09</td><td class='num'>219</td><td class='num'>21.90</td><td class='num'>7</td><td class='num'>11.0</td><td class='num'>152x</td></tr>
+<tr><td>45</td><td class='l'>川投能源</td><td class='l'>水力发电</td><td class='num'><b>24.7x</b></td><td class='num'>29x</td><td>2014-09</td><td class='num'>28</td><td class='num'>2.03</td><td class='num'>16</td><td class='num'>7.4</td><td class='num'>82x</td></tr>
+<tr><td>46</td><td class='l'>紫光国微</td><td class='l'>半导体</td><td class='num'><b>23.7x</b></td><td class='num'>62x</td><td>2015-03</td><td class='num'>62</td><td class='num'>4.41</td><td class='num'>9</td><td class='num'>9.8</td><td class='num'>103x</td></tr>
+<tr><td>47</td><td class='l'>凯盛科技</td><td class='l'>元器件</td><td class='num'><b>23.6x</b></td><td class='num'>42x</td><td>2010-01</td><td class='num'>—</td><td class='num'>1.60</td><td class='num'>4</td><td class='num'>-34.0</td><td class='num'>-1x</td></tr>
+<tr><td>48</td><td class='l'>万华化学</td><td class='l'>化工原料</td><td class='num'><b>23.2x</b></td><td class='num'>29x</td><td>2018-07</td><td class='num'>20</td><td class='num'>6.94</td><td class='num'>123</td><td class='num'>40.2</td><td class='num'>20x</td></tr>
+<tr><td>49</td><td class='l'>宏发股份</td><td class='l'>电气设备</td><td class='num'><b>23.0x</b></td><td class='num'>26x</td><td>2017-07</td><td class='num'>346</td><td class='num'>2.72</td><td class='num'>6</td><td class='num'>0.8</td><td class='num'>1064x</td></tr>
+<tr><td>50</td><td class='l'>羚锐制药</td><td class='l'>中成药</td><td class='num'><b>22.6x</b></td><td class='num'>27x</td><td>2015-04</td><td class='num'>29</td><td class='num'>1.19</td><td class='num'>5</td><td class='num'>4.1</td><td class='num'>41x</td></tr>
+<tr><td>51</td><td class='l'>四川路桥</td><td class='l'>建筑工程</td><td class='num'><b>22.4x</b></td><td class='num'>22x</td><td>2021-10</td><td class='num'>423</td><td class='num'>1.55</td><td class='num'>14</td><td class='num'>0.4</td><td class='num'>2171x</td></tr>
+<tr><td>52</td><td class='l'>浙江龙盛</td><td class='l'>染料涂料</td><td class='num'><b>21.8x</b></td><td class='num'>25x</td><td>2014-12</td><td class='num'>13</td><td class='num'>2.20</td><td class='num'>23</td><td class='num'>17.4</td><td class='num'>11x</td></tr>
+<tr><td>53</td><td class='l'>普洛药业</td><td class='l'>化学制药</td><td class='num'><b>21.7x</b></td><td class='num'>35x</td><td>2019-10</td><td class='num'>17</td><td class='num'>1.95</td><td class='num'>7</td><td class='num'>12.4</td><td class='num'>20x</td></tr>
+<tr><td>54</td><td class='l'>华鲁恒升</td><td class='l'>农药化肥</td><td class='num'><b>21.2x</b></td><td class='num'>24x</td><td>2020-08</td><td class='num'>15</td><td class='num'>2.77</td><td class='num'>26</td><td class='num'>21.1</td><td class='num'>19x</td></tr>
+<tr><td>55</td><td class='l'>华东医药</td><td class='l'>化学制药</td><td class='num'><b>20.2x</b></td><td class='num'>30x</td><td>2015-04</td><td class='num'>—</td><td class='num'>—</td><td class='num'>—</td><td class='num'>—</td><td class='num'>—</td></tr>
+<tr><td>56</td><td class='l'>宗申动力</td><td class='l'>摩托车</td><td class='num'><b>20.1x</b></td><td class='num'>31x</td><td>2015-03</td><td class='num'>13</td><td class='num'>3.71</td><td class='num'>12</td><td class='num'>32.0</td><td class='num'>7x</td></tr>
+<tr><td>57</td><td class='l'>中航高科</td><td class='l'>航空</td><td class='num'><b>20.0x</b></td><td class='num'>33x</td><td>2014-10</td><td class='num'>—</td><td class='num'>4.80</td><td class='num'>6</td><td class='num'>-22.6</td><td class='num'>-34x</td></tr>
+<tr><td>58</td><td class='l'>泸州老窖</td><td class='l'>白酒</td><td class='num'><b>20.0x</b></td><td class='num'>52x</td><td>2017-10</td><td class='num'>230</td><td class='num'>6.91</td><td class='num'>106</td><td class='num'>3.0</td><td class='num'>234x</td></tr>
+<tr><td>59</td><td class='l'>涪陵电力</td><td class='l'>水力发电</td><td class='num'><b>19.8x</b></td><td class='num'>29x</td><td>2016-11</td><td class='num'>25</td><td class='num'>1.47</td><td class='num'>7</td><td class='num'>5.8</td><td class='num'>14x</td></tr>
+<tr><td>60</td><td class='l'>盛达资源</td><td class='l'>铅锌</td><td class='num'><b>19.7x</b></td><td class='num'>25x</td><td>2010-12</td><td class='num'>—</td><td class='num'>4.33</td><td class='num'>3</td><td class='num'>-19.9</td><td class='num'>-32x</td></tr>
+<tr><td>61</td><td class='l'>冰轮环境</td><td class='l'>工程机械</td><td class='num'><b>19.5x</b></td><td class='num'>27x</td><td>2023-07</td><td class='num'>27</td><td class='num'>2.70</td><td class='num'>12</td><td class='num'>10.2</td><td class='num'>13x</td></tr>
+<tr><td>62</td><td class='l'>方大炭素</td><td class='l'>矿物制品</td><td class='num'><b>19.3x</b></td><td class='num'>48x</td><td>2008-02</td><td class='num'>—</td><td class='num'>1.26</td><td class='num'>7</td><td class='num'>-22.4</td><td class='num'>-1x</td></tr>
+<tr><td>63</td><td class='l'>神州数码</td><td class='l'>软件服务</td><td class='num'><b>19.1x</b></td><td class='num'>27x</td><td>2015-12</td><td class='num'>—</td><td class='num'>—</td><td class='num'>—</td><td class='num'>—</td><td class='num'>-3x</td></tr>
+<tr><td>64</td><td class='l'>宝信软件</td><td class='l'>软件服务</td><td class='num'><b>19.0x</b></td><td class='num'>38x</td><td>2019-07</td><td class='num'>44</td><td class='num'>6.78</td><td class='num'>29</td><td class='num'>15.6</td><td class='num'>20x</td></tr>
+<tr><td>65</td><td class='l'>神火股份</td><td class='l'>铝</td><td class='num'><b>18.6x</b></td><td class='num'>20x</td><td>2024-03</td><td class='num'>8</td><td class='num'>2.56</td><td class='num'>40</td><td class='num'>31.7</td><td class='num'>8x</td></tr>
+<tr><td>66</td><td class='l'>华域汽车</td><td class='l'>汽车配件</td><td class='num'><b>18.6x</b></td><td class='num'>26x</td><td>2014-12</td><td class='num'>16</td><td class='num'>1.14</td><td class='num'>21</td><td class='num'>7.5</td><td class='num'>54x</td></tr>
+<tr><td>67</td><td class='l'>科新发展</td><td class='l'>装修装饰</td><td class='num'><b>18.5x</b></td><td class='num'>23x</td><td>2014-05</td><td class='num'>—</td><td class='num'>—</td><td class='num'>—</td><td class='num'>—</td><td class='num'>0x</td></tr>
+<tr><td>68</td><td class='l'>中鼎股份</td><td class='l'>汽车配件</td><td class='num'><b>18.4x</b></td><td class='num'>28x</td><td>2014-08</td><td class='num'>157</td><td class='num'>3.56</td><td class='num'>12</td><td class='num'>6.0</td><td class='num'>217x</td></tr>
+<tr><td>69</td><td class='l'>有研新材</td><td class='l'>半导体</td><td class='num'><b>18.2x</b></td><td class='num'>26x</td><td>2026-02</td><td class='num'>283</td><td class='num'>1.58</td><td class='num'>10</td><td class='num'>0.6</td><td class='num'>72x</td></tr>
+<tr><td>70</td><td class='l'>特变电工</td><td class='l'>电气设备</td><td class='num'><b>18.0x</b></td><td class='num'>26x</td><td>2021-08</td><td class='num'>36</td><td class='num'>2.94</td><td class='num'>46</td><td class='num'>8.6</td><td class='num'>48x</td></tr>
+<tr><td>71</td><td class='l'>国城矿业</td><td class='l'>铅锌</td><td class='num'><b>17.6x</b></td><td class='num'>25x</td><td>2020-05</td><td class='num'>—</td><td class='num'>—</td><td class='num'>—</td><td class='num'>—</td><td class='num'>-1x</td></tr>
+<tr><td>72</td><td class='l'>中国稀土</td><td class='l'>小金属</td><td class='num'><b>17.5x</b></td><td class='num'>22x</td><td>2014-12</td><td class='num'>112</td><td class='num'>1.79</td><td class='num'>19</td><td class='num'>1.6</td><td class='num'>10x</td></tr>
+<tr><td>73</td><td class='l'>兔宝宝</td><td class='l'>其他建材</td><td class='num'><b>17.5x</b></td><td class='num'>22x</td><td>2015-10</td><td class='num'>24</td><td class='num'>1.99</td><td class='num'>7</td><td class='num'>11.8</td><td class='num'>23x</td></tr>
+<tr><td>74</td><td class='l'>远东股份</td><td class='l'>电气设备</td><td class='num'><b>17.2x</b></td><td class='num'>21x</td><td>2015-04</td><td class='num'>66</td><td class='num'>4.56</td><td class='num'>6</td><td class='num'>7.1</td><td class='num'>6x</td></tr>
+<tr><td>75</td><td class='l'>达仁堂</td><td class='l'>中成药</td><td class='num'><b>17.1x</b></td><td class='num'>22x</td><td>2021-06</td><td class='num'>25</td><td class='num'>1.24</td><td class='num'>20</td><td class='num'>5.0</td><td class='num'>26x</td></tr>
+<tr><td>76</td><td class='l'>老白干酒</td><td class='l'>白酒</td><td class='num'><b>16.8x</b></td><td class='num'>47x</td><td>2010-11</td><td class='num'>56</td><td class='num'>1.86</td><td class='num'>6</td><td class='num'>3.2</td><td class='num'>39x</td></tr>
+<tr><td>77</td><td class='l'>航发动力</td><td class='l'>航空</td><td class='num'><b>16.6x</b></td><td class='num'>24x</td><td>2014-09</td><td class='num'>682</td><td class='num'>2.54</td><td class='num'>15</td><td class='num'>0.4</td><td class='num'>287x</td></tr>
+<tr><td>78</td><td class='l'>云铝股份</td><td class='l'>铝</td><td class='num'><b>16.3x</b></td><td class='num'>17x</td><td>2025-10</td><td class='num'>24</td><td class='num'>2.03</td><td class='num'>33</td><td class='num'>8.5</td><td class='num'>43x</td></tr>
+<tr><td>79</td><td class='l'>北方导航</td><td class='l'>专用机械</td><td class='num'><b>16.3x</b></td><td class='num'>30x</td><td>2014-07</td><td class='num'>32</td><td class='num'>0.95</td><td class='num'>5</td><td class='num'>3.0</td><td class='num'>8x</td></tr>
+<tr><td>80</td><td class='l'>伟星股份</td><td class='l'>服饰</td><td class='num'><b>16.2x</b></td><td class='num'>19x</td><td>2021-12</td><td class='num'>26</td><td class='num'>3.67</td><td class='num'>9</td><td class='num'>14.5</td><td class='num'>18x</td></tr>
+<tr><td>81</td><td class='l'>安琪酵母</td><td class='l'>食品</td><td class='num'><b>16.2x</b></td><td class='num'>24x</td><td>2017-11</td><td class='num'>37</td><td class='num'>3.46</td><td class='num'>23</td><td class='num'>9.7</td><td class='num'>25x</td></tr>
+<tr><td>82</td><td class='l'>中金黄金</td><td class='l'>黄金</td><td class='num'><b>16.0x</b></td><td class='num'>22x</td><td>2025-09</td><td class='num'>76</td><td class='num'>6.46</td><td class='num'>51</td><td class='num'>8.7</td><td class='num'>73x</td></tr>
+<tr><td>83</td><td class='l'>京基智农</td><td class='l'>农业综合</td><td class='num'><b>15.9x</b></td><td class='num'>17x</td><td>2015-06</td><td class='num'>—</td><td class='num'>—</td><td class='num'>—</td><td class='num'>—</td><td class='num'>-1x</td></tr>
+<tr><td>84</td><td class='l'>紫金龙净</td><td class='l'>环境保护</td><td class='num'><b>15.7x</b></td><td class='num'>17x</td><td>2015-03</td><td class='num'>27</td><td class='num'>1.85</td><td class='num'>14</td><td class='num'>6.9</td><td class='num'>22x</td></tr>
+<tr><td>85</td><td class='l'>冠农股份</td><td class='l'>农业综合</td><td class='num'><b>15.4x</b></td><td class='num'>19x</td><td>2008-01</td><td class='num'>160</td><td class='num'>2.39</td><td class='num'>9</td><td class='num'>1.5</td><td class='num'>60x</td></tr>
+<tr><td>86</td><td class='l'>中国卫星</td><td class='l'>航空</td><td class='num'><b>15.3x</b></td><td class='num'>22x</td><td>2015-04</td><td class='num'>667</td><td class='num'>13.01</td><td class='num'>43</td><td class='num'>2.0</td><td class='num'>6x</td></tr>
+<tr><td>87</td><td class='l'>华峰化学</td><td class='l'>化纤</td><td class='num'><b>15.2x</b></td><td class='num'>18x</td><td>2015-05</td><td class='num'>21</td><td class='num'>2.05</td><td class='num'>11</td><td class='num'>10.2</td><td class='num'>37x</td></tr>
+<tr><td>88</td><td class='l'>华润江中</td><td class='l'>中成药</td><td class='num'><b>15.2x</b></td><td class='num'>18x</td><td>2015-08</td><td class='num'>27</td><td class='num'>2.08</td><td class='num'>15</td><td class='num'>7.9</td><td class='num'>17x</td></tr>
+<tr><td>89</td><td class='l'>国轩高科</td><td class='l'>电气设备</td><td class='num'><b>15.0x</b></td><td class='num'>32x</td><td>2015-02</td><td class='num'>—</td><td class='num'>—</td><td class='num'>—</td><td class='num'>—</td><td class='num'>—</td></tr>
+<tr><td>90</td><td class='l'>苏泊尔</td><td class='l'>家用电器</td><td class='num'><b>14.9x</b></td><td class='num'>26x</td><td>2017-05</td><td class='num'>40</td><td class='num'>3.89</td><td class='num'>27</td><td class='num'>10.1</td><td class='num'>30x</td></tr>
+<tr><td>91</td><td class='l'>五粮液</td><td class='l'>白酒</td><td class='num'><b>14.8x</b></td><td class='num'>44x</td><td>2017-12</td><td class='num'>44</td><td class='num'>4.74</td><td class='num'>349</td><td class='num'>11.4</td><td class='num'>11x</td></tr>
+<tr><td>92</td><td class='l'>华特达因</td><td class='l'>化学制药</td><td class='num'><b>14.7x</b></td><td class='num'>18x</td><td>2015-03</td><td class='num'>90</td><td class='num'>1.99</td><td class='num'>6</td><td class='num'>2.3</td><td class='num'>87x</td></tr>
+<tr><td>93</td><td class='l'>圆通速递</td><td class='l'>仓储物流</td><td class='num'><b>14.7x</b></td><td class='num'>23x</td><td>2016-04</td><td class='num'>24</td><td class='num'>1.37</td><td class='num'>6</td><td class='num'>5.8</td><td class='num'>159x</td></tr>
+<tr><td>94</td><td class='l'>内蒙一机</td><td class='l'>运输设备</td><td class='num'><b>14.6x</b></td><td class='num'>21x</td><td>2014-07</td><td class='num'>—</td><td class='num'>1.42</td><td class='num'>7</td><td class='num'>-2.2</td><td class='num'>-32x</td></tr>
+<tr><td>95</td><td class='l'>江山股份</td><td class='l'>农药化肥</td><td class='num'><b>14.6x</b></td><td class='num'>26x</td><td>2021-04</td><td class='num'>15</td><td class='num'>1.60</td><td class='num'>9</td><td class='num'>10.7</td><td class='num'>9x</td></tr>
+<tr><td>96</td><td class='l'>亚钾国际</td><td class='l'>农药化肥</td><td class='num'><b>14.4x</b></td><td class='num'>18x</td><td>2022-04</td><td class='num'>—</td><td class='num'>—</td><td class='num'>—</td><td class='num'>—</td><td class='num'>—</td></tr>
+<tr><td>97</td><td class='l'>航天发展</td><td class='l'>通信设备</td><td class='num'><b>14.4x</b></td><td class='num'>23x</td><td>2014-10</td><td class='num'>—</td><td class='num'>1.19</td><td class='num'>5</td><td class='num'>-8.9</td><td class='num'>34x</td></tr>
+<tr><td>98</td><td class='l'>东睦股份</td><td class='l'>机械基件</td><td class='num'><b>14.3x</b></td><td class='num'>24x</td><td>2024-07</td><td class='num'>20</td><td class='num'>1.43</td><td class='num'>9</td><td class='num'>7.2</td><td class='num'>12x</td></tr>
+<tr><td>99</td><td class='l'>海信视像</td><td class='l'>家用电器</td><td class='num'><b>14.0x</b></td><td class='num'>14x</td><td>2015-04</td><td class='num'>30</td><td class='num'>1.22</td><td class='num'>31</td><td class='num'>4.2</td><td class='num'>24x</td></tr>
+<tr><td>100</td><td class='l'>兴发集团</td><td class='l'>农药化肥</td><td class='num'><b>14.0x</b></td><td class='num'>21x</td><td>2021-08</td><td class='num'>32</td><td class='num'>2.06</td><td class='num'>11</td><td class='num'>6.6</td><td class='num'>45x</td></tr>
+<tr><td>101</td><td class='l'>中联重科</td><td class='l'>工程机械</td><td class='num'><b>14.0x</b></td><td class='num'>22x</td><td>2010-10</td><td class='num'>17</td><td class='num'>3.00</td><td class='num'>52</td><td class='num'>18.5</td><td class='num'>16x</td></tr>
+<tr><td>102</td><td class='l'>海信家电</td><td class='l'>家用电器</td><td class='num'><b>13.8x</b></td><td class='num'>19x</td><td>2023-04</td><td class='num'>—</td><td class='num'>—</td><td class='num'>—</td><td class='num'>-500.4</td><td class='num'>-1x</td></tr>
+<tr><td>103</td><td class='l'>烽火通信</td><td class='l'>通信设备</td><td class='num'><b>13.7x</b></td><td class='num'>23x</td><td>2015-05</td><td class='num'>68</td><td class='num'>1.26</td><td class='num'>29</td><td class='num'>1.9</td><td class='num'>10x</td></tr>
+<tr><td>104</td><td class='l'>精达股份</td><td class='l'>电气设备</td><td class='num'><b>13.7x</b></td><td class='num'>24x</td><td>2015-05</td><td class='num'>15</td><td class='num'>1.85</td><td class='num'>6</td><td class='num'>13.2</td><td class='num'>14x</td></tr>
+<tr><td>105</td><td class='l'>ST人福</td><td class='l'>化学制药</td><td class='num'><b>13.6x</b></td><td class='num'>24x</td><td>2013-08</td><td class='num'>19</td><td class='num'>1.71</td><td class='num'>10</td><td class='num'>9.2</td><td class='num'>36x</td></tr>
+<tr><td>106</td><td class='l'>法拉电子</td><td class='l'>元器件</td><td class='num'><b>13.5x</b></td><td class='num'>35x</td><td>2020-10</td><td class='num'>29</td><td class='num'>3.37</td><td class='num'>25</td><td class='num'>11.7</td><td class='num'>14x</td></tr>
+<tr><td>107</td><td class='l'>永新股份</td><td class='l'>塑料</td><td class='num'><b>13.3x</b></td><td class='num'>14x</td><td>2024-05</td><td class='num'>17</td><td class='num'>2.11</td><td class='num'>8</td><td class='num'>12.7</td><td class='num'>10x</td></tr>
+<tr><td>108</td><td class='l'>伊利股份</td><td class='l'>乳制品</td><td class='num'><b>13.3x</b></td><td class='num'>17x</td><td>2017-10</td><td class='num'>26</td><td class='num'>3.33</td><td class='num'>76</td><td class='num'>13.5</td><td class='num'>39x</td></tr>
+<tr><td>109</td><td class='l'>广汇能源</td><td class='l'>石油开采</td><td class='num'><b>13.2x</b></td><td class='num'>17x</td><td>2010-10</td><td class='num'>24</td><td class='num'>2.54</td><td class='num'>46</td><td class='num'>11.4</td><td class='num'>7x</td></tr>
+<tr><td>110</td><td class='l'>均胜电子</td><td class='l'>汽车配件</td><td class='num'><b>13.2x</b></td><td class='num'>23x</td><td>2014-01</td><td class='num'>—</td><td class='num'>1.08</td><td class='num'>4</td><td class='num'>-17.2</td><td class='num'>-19x</td></tr>
+<tr><td>111</td><td class='l'>招商银行</td><td class='l'>银行</td><td class='num'><b>13.1x</b></td><td class='num'>14x</td><td>2020-11</td><td class='num'>25</td><td class='num'>3.58</td><td class='num'>931</td><td class='num'>16.2</td><td class='num'>40x</td></tr>
+<tr><td>112</td><td class='l'>盛和资源</td><td class='l'>小金属</td><td class='num'><b>13.1x</b></td><td class='num'>19x</td><td>2017-08</td><td class='num'>27</td><td class='num'>2.77</td><td class='num'>11</td><td class='num'>10.8</td><td class='num'>21x</td></tr>
+<tr><td>113</td><td class='l'>长江电力</td><td class='l'>水力发电</td><td class='num'><b>13.1x</b></td><td class='num'>13x</td><td>2023-12</td><td class='num'>16</td><td class='num'>2.34</td><td class='num'>520</td><td class='num'>15.1</td><td class='num'>10x</td></tr>
+<tr><td>114</td><td class='l'>卧龙电驱</td><td class='l'>电气设备</td><td class='num'><b>13.0x</b></td><td class='num'>25x</td><td>2025-02</td><td class='num'>17</td><td class='num'>2.08</td><td class='num'>11</td><td class='num'>12.7</td><td class='num'>17x</td></tr>
+<tr><td>115</td><td class='l'>特发信息</td><td class='l'>通信设备</td><td class='num'><b>12.8x</b></td><td class='num'>14x</td><td>2026-02</td><td class='num'>—</td><td class='num'>1.64</td><td class='num'>10</td><td class='num'>-24.2</td><td class='num'>3x</td></tr>
+<tr><td>116</td><td class='l'>江钨装备</td><td class='l'>专用机械</td><td class='num'><b>12.8x</b></td><td class='num'>21x</td><td>2026-02</td><td class='num'>—</td><td class='num'>0.94</td><td class='num'>7</td><td class='num'>-4.6</td><td class='num'>8x</td></tr>
+<tr><td>117</td><td class='l'>国机精工</td><td class='l'>机械基件</td><td class='num'><b>12.7x</b></td><td class='num'>17x</td><td>2025-12</td><td class='num'>34</td><td class='num'>3.26</td><td class='num'>9</td><td class='num'>13.9</td><td class='num'>10x</td></tr>
+<tr><td>118</td><td class='l'>京新药业</td><td class='l'>化学制药</td><td class='num'><b>12.7x</b></td><td class='num'>21x</td><td>2015-10</td><td class='num'>22</td><td class='num'>1.44</td><td class='num'>4</td><td class='num'>6.6</td><td class='num'>41x</td></tr>
+<tr><td>119</td><td class='l'>中航机载</td><td class='l'>航空</td><td class='num'><b>12.6x</b></td><td class='num'>36x</td><td>2010-10</td><td class='num'>68</td><td class='num'>0.89</td><td class='num'>11</td><td class='num'>1.3</td><td class='num'>64x</td></tr>
+<tr><td>120</td><td class='l'>豫光金铅</td><td class='l'>铅锌</td><td class='num'><b>12.6x</b></td><td class='num'>18x</td><td>2025-09</td><td class='num'>15</td><td class='num'>1.87</td><td class='num'>13</td><td class='num'>12.8</td><td class='num'>10x</td></tr>
+<tr><td>121</td><td class='l'>兖矿能源</td><td class='l'>煤炭开采</td><td class='num'><b>12.5x</b></td><td class='num'>16x</td><td>2022-08</td><td class='num'>12</td><td class='num'>1.77</td><td class='num'>304</td><td class='num'>15.4</td><td class='num'>3x</td></tr>
+<tr><td>122</td><td class='l'>国投电力</td><td class='l'>水力发电</td><td class='num'><b>12.4x</b></td><td class='num'>15x</td><td>2023-05</td><td class='num'>8</td><td class='num'>2.19</td><td class='num'>30</td><td class='num'>27.8</td><td class='num'>20x</td></tr>
+<tr><td>123</td><td class='l'>新洋丰</td><td class='l'>农药化肥</td><td class='num'><b>12.4x</b></td><td class='num'>14x</td><td>2015-05</td><td class='num'>212</td><td class='num'>2.47</td><td class='num'>9</td><td class='num'>1.2</td><td class='num'>400x</td></tr>
+<tr><td>124</td><td class='l'>高新发展</td><td class='l'>建筑工程</td><td class='num'><b>12.4x</b></td><td class='num'>15x</td><td>2023-11</td><td class='num'>95</td><td class='num'>2.63</td><td class='num'>10</td><td class='num'>2.8</td><td class='num'>10x</td></tr>
+<tr><td>125</td><td class='l'>联环药业</td><td class='l'>化学制药</td><td class='num'><b>12.3x</b></td><td class='num'>17x</td><td>2015-04</td><td class='num'>59</td><td class='num'>1.75</td><td class='num'>4</td><td class='num'>3.0</td><td class='num'>-13x</td></tr>
+<tr><td>126</td><td class='l'>锦龙股份</td><td class='l'>证券</td><td class='num'><b>12.2x</b></td><td class='num'>48x</td><td>2007-08</td><td class='num'>242</td><td class='num'>1.42</td><td class='num'>6</td><td class='num'>0.6</td><td class='num'>112x</td></tr>
+<tr><td>127</td><td class='l'>精工科技</td><td class='l'>专用机械</td><td class='num'><b>12.1x</b></td><td class='num'>26x</td><td>2010-12</td><td class='num'>24</td><td class='num'>1.31</td><td class='num'>4</td><td class='num'>5.3</td><td class='num'>10x</td></tr>
+<tr><td>128</td><td class='l'>中航重机</td><td class='l'>航空</td><td class='num'><b>12.0x</b></td><td class='num'>26x</td><td>2014-09</td><td class='num'>80</td><td class='num'>4.07</td><td class='num'>7</td><td class='num'>5.3</td><td class='num'>67x</td></tr>
+<tr><td>129</td><td class='l'>华兰生物</td><td class='l'>生物制药</td><td class='num'><b>12.0x</b></td><td class='num'>50x</td><td>2010-04</td><td class='num'>44</td><td class='num'>4.43</td><td class='num'>23</td><td class='num'>10.2</td><td class='num'>18x</td></tr>
+<tr><td>130</td><td class='l'>老凤祥</td><td class='l'>服饰</td><td class='num'><b>12.0x</b></td><td class='num'>26x</td><td>2015-03</td><td class='num'>48</td><td class='num'>3.18</td><td class='num'>16</td><td class='num'>6.8</td><td class='num'>52x</td></tr>
+<tr><td>131</td><td class='l'>紫光股份</td><td class='l'>IT设备</td><td class='num'><b>12.0x</b></td><td class='num'>14x</td><td>2015-06</td><td class='num'>—</td><td class='num'>2.64</td><td class='num'>16</td><td class='num'>-5.1</td><td class='num'>-52x</td></tr>
+<tr><td>132</td><td class='l'>长电科技</td><td class='l'>半导体</td><td class='num'><b>11.9x</b></td><td class='num'>16x</td><td>2020-07</td><td class='num'>48</td><td class='num'>3.55</td><td class='num'>26</td><td class='num'>7.7</td><td class='num'>28x</td></tr>
+<tr><td>133</td><td class='l'>鄂尔多斯</td><td class='l'>特种钢</td><td class='num'><b>11.9x</b></td><td class='num'>13x</td><td>2021-08</td><td class='num'>25</td><td class='num'>1.43</td><td class='num'>46</td><td class='num'>5.7</td><td class='num'>13x</td></tr>
+<tr><td>134</td><td class='l'>南京高科</td><td class='l'>园区开发</td><td class='num'><b>11.9x</b></td><td class='num'>12x</td><td>2015-05</td><td class='num'>25</td><td class='num'>1.67</td><td class='num'>23</td><td class='num'>6.9</td><td class='num'>20x</td></tr>
+<tr><td>135</td><td class='l'>德赛电池</td><td class='l'>电气设备</td><td class='num'><b>11.8x</b></td><td class='num'>24x</td><td>2013-06</td><td class='num'>44</td><td class='num'>5.17</td><td class='num'>8</td><td class='num'>12.4</td><td class='num'>16x</td></tr>
+<tr><td>136</td><td class='l'>鹏欣资源</td><td class='l'>铜</td><td class='num'><b>11.8x</b></td><td class='num'>27x</td><td>2013-01</td><td class='num'>—</td><td class='num'>1.56</td><td class='num'>4</td><td class='num'>-8.3</td><td class='num'>-9x</td></tr>
+<tr><td>137</td><td class='l'>招金黄金</td><td class='l'>黄金</td><td class='num'><b>11.7x</b></td><td class='num'>14x</td><td>2026-01</td><td class='num'>—</td><td class='num'>2.87</td><td class='num'>5</td><td class='num'>-47.6</td><td class='num'>-1x</td></tr>
+<tr><td>138</td><td class='l'>方大特钢</td><td class='l'>特种钢</td><td class='num'><b>11.7x</b></td><td class='num'>17x</td><td>2017-07</td><td class='num'>26</td><td class='num'>1.72</td><td class='num'>10</td><td class='num'>6.5</td><td class='num'>25x</td></tr>
+<tr><td>139</td><td class='l'>富维股份</td><td class='l'>汽车配件</td><td class='num'><b>11.7x</b></td><td class='num'>15x</td><td>2010-10</td><td class='num'>—</td><td class='num'>0.71</td><td class='num'>8</td><td class='num'>-10.3</td><td class='num'>-4x</td></tr>
+<tr><td>140</td><td class='l'>建发股份</td><td class='l'>仓储物流</td><td class='num'><b>11.7x</b></td><td class='num'>17x</td><td>2015-03</td><td class='num'>15</td><td class='num'>1.26</td><td class='num'>33</td><td class='num'>8.2</td><td class='num'>-51x</td></tr>
+<tr><td>141</td><td class='l'>云南白药</td><td class='l'>中成药</td><td class='num'><b>11.5x</b></td><td class='num'>16x</td><td>2017-06</td><td class='num'>23</td><td class='num'>6.34</td><td class='num'>52</td><td class='num'>30.8</td><td class='num'>22x</td></tr>
+<tr><td>142</td><td class='l'>长安汽车</td><td class='l'>汽车整车</td><td class='num'><b>11.4x</b></td><td class='num'>24x</td><td>2015-01</td><td class='num'>35</td><td class='num'>1.22</td><td class='num'>82</td><td class='num'>3.5</td><td class='num'>17x</td></tr>
+<tr><td>143</td><td class='l'>徐工机械</td><td class='l'>工程机械</td><td class='num'><b>11.4x</b></td><td class='num'>17x</td><td>2010-12</td><td class='num'>—</td><td class='num'>2.87</td><td class='num'>31</td><td class='num'>-11.4</td><td class='num'>-51x</td></tr>
+<tr><td>144</td><td class='l'>华阳股份</td><td class='l'>煤炭开采</td><td class='num'><b>11.4x</b></td><td class='num'>14x</td><td>2010-10</td><td class='num'>9</td><td class='num'>2.05</td><td class='num'>54</td><td class='num'>23.8</td><td class='num'>3x</td></tr>
+<tr><td>145</td><td class='l'>生物股份</td><td class='l'>农业综合</td><td class='num'><b>11.3x</b></td><td class='num'>21x</td><td>2015-03</td><td class='num'>106</td><td class='num'>2.27</td><td class='num'>13</td><td class='num'>2.1</td><td class='num'>8x</td></tr>
+<tr><td>146</td><td class='l'>济川药业</td><td class='l'>中成药</td><td class='num'><b>11.2x</b></td><td class='num'>16x</td><td>2017-03</td><td class='num'>57</td><td class='num'>1.01</td><td class='num'>5</td><td class='num'>1.8</td><td class='num'>211x</td></tr>
+<tr><td>147</td><td class='l'>中国动力</td><td class='l'>船舶</td><td class='num'><b>11.2x</b></td><td class='num'>14x</td><td>2015-05</td><td class='num'>25</td><td class='num'>1.78</td><td class='num'>13</td><td class='num'>7.4</td><td class='num'>24x</td></tr>
+<tr><td>148</td><td class='l'>先导基电</td><td class='l'>半导体</td><td class='num'><b>11.2x</b></td><td class='num'>17x</td><td>2021-07</td><td class='num'>99</td><td class='num'>1.38</td><td class='num'>27</td><td class='num'>1.4</td><td class='num'>-5x</td></tr>
+<tr><td>149</td><td class='l'>安徽建工</td><td class='l'>建筑工程</td><td class='num'><b>11.1x</b></td><td class='num'>16x</td><td>2015-02</td><td class='num'>22</td><td class='num'>1.37</td><td class='num'>7</td><td class='num'>6.3</td><td class='num'>50x</td></tr>
+<tr><td>150</td><td class='l'>浙江东方</td><td class='l'>多元金融</td><td class='num'><b>11.1x</b></td><td class='num'>15x</td><td>2015-03</td><td class='num'>17</td><td class='num'>1.50</td><td class='num'>15</td><td class='num'>9.1</td><td class='num'>10x</td></tr>
+<tr><td>151</td><td class='l'>国金证券</td><td class='l'>证券</td><td class='num'><b>11.0x</b></td><td class='num'>30x</td><td>2007-04</td><td class='num'>494</td><td class='num'>2.57</td><td class='num'>5</td><td class='num'>0.5</td><td class='num'>2144x</td></tr>
+<tr><td>152</td><td class='l'>太极实业</td><td class='l'>半导体</td><td class='num'><b>11.0x</b></td><td class='num'>15x</td><td>2026-06</td><td class='num'>59</td><td class='num'>1.98</td><td class='num'>11</td><td class='num'>3.4</td><td class='num'>25x</td></tr>
+<tr><td>153</td><td class='l'>万向钱潮</td><td class='l'>汽车配件</td><td class='num'><b>11.0x</b></td><td class='num'>20x</td><td>2015-05</td><td class='num'>28</td><td class='num'>2.31</td><td class='num'>38</td><td class='num'>8.5</td><td class='num'>8x</td></tr>
+<tr><td>154</td><td class='l'>*ST闻泰</td><td class='l'>半导体</td><td class='num'><b>10.9x</b></td><td class='num'>71x</td><td>2015-04</td><td class='num'>—</td><td class='num'>—</td><td class='num'>—</td><td class='num'>—</td><td class='num'>37x</td></tr>
+<tr><td>155</td><td class='l'>佛塑科技</td><td class='l'>塑料</td><td class='num'><b>10.8x</b></td><td class='num'>13x</td><td>2025-12</td><td class='num'>230</td><td class='num'>0.68</td><td class='num'>10</td><td class='num'>0.3</td><td class='num'>26x</td></tr>
+<tr><td>156</td><td class='l'>潞安环能</td><td class='l'>煤炭开采</td><td class='num'><b>10.7x</b></td><td class='num'>18x</td><td>2010-12</td><td class='num'>—</td><td class='num'>—</td><td class='num'>—</td><td class='num'>—</td><td class='num'>—</td></tr>
+<tr><td>157</td><td class='l'>瀚蓝环境</td><td class='l'>环境保护</td><td class='num'><b>10.7x</b></td><td class='num'>11x</td><td>2026-01</td><td class='num'>22</td><td class='num'>2.02</td><td class='num'>17</td><td class='num'>9.5</td><td class='num'>26x</td></tr>
+<tr><td>158</td><td class='l'>中通客车</td><td class='l'>汽车整车</td><td class='num'><b>10.6x</b></td><td class='num'>18x</td><td>2015-11</td><td class='num'>62</td><td class='num'>1.27</td><td class='num'>6</td><td class='num'>2.1</td><td class='num'>37x</td></tr>
+<tr><td>159</td><td class='l'>北新建材</td><td class='l'>其他建材</td><td class='num'><b>10.6x</b></td><td class='num'>26x</td><td>2017-10</td><td class='num'>23</td><td class='num'>1.90</td><td class='num'>28</td><td class='num'>8.4</td><td class='num'>24x</td></tr>
+<tr><td>160</td><td class='l'>长江通信</td><td class='l'>通信设备</td><td class='num'><b>10.5x</b></td><td class='num'>12x</td><td>2026-06</td><td class='num'>88</td><td class='num'>1.25</td><td class='num'>12</td><td class='num'>1.4</td><td class='num'>17x</td></tr>
+<tr><td>161</td><td class='l'>四川九洲</td><td class='l'>家用电器</td><td class='num'><b>10.5x</b></td><td class='num'>14x</td><td>2015-03</td><td class='num'>115</td><td class='num'>7.21</td><td class='num'>7</td><td class='num'>6.5</td><td class='num'>30x</td></tr>
+<tr><td>162</td><td class='l'>中国软件</td><td class='l'>软件服务</td><td class='num'><b>10.5x</b></td><td class='num'>18x</td><td>2015-05</td><td class='num'>34</td><td class='num'>3.77</td><td class='num'>17</td><td class='num'>11.4</td><td class='num'>-1x</td></tr>
+<tr><td>163</td><td class='l'>中信证券</td><td class='l'>证券</td><td class='num'><b>10.2x</b></td><td class='num'>11x</td><td>2024-11</td><td class='num'>85</td><td class='num'>6.01</td><td class='num'>339</td><td class='num'>7.3</td><td class='num'>75x</td></tr>
+<tr><td>164</td><td class='l'>昊华科技</td><td class='l'>化工原料</td><td class='num'><b>10.1x</b></td><td class='num'>17x</td><td>2021-11</td><td class='num'>303</td><td class='num'>2.86</td><td class='num'>11</td><td class='num'>0.9</td><td class='num'>395x</td></tr>
+<tr><td>165</td><td class='l'>东信和平</td><td class='l'>通信设备</td><td class='num'><b>10.1x</b></td><td class='num'>16x</td><td>2025-06</td><td class='num'>54</td><td class='num'>1.57</td><td class='num'>6</td><td class='num'>2.9</td><td class='num'>14x</td></tr>
+<tr><td>166</td><td class='l'>淮北矿业</td><td class='l'>煤炭开采</td><td class='num'><b>10.0x</b></td><td class='num'>11x</td><td>2024-02</td><td class='num'>53</td><td class='num'>1.69</td><td class='num'>5</td><td class='num'>3.2</td><td class='num'>167x</td></tr>
+<tr><td>167</td><td class='l'>舍得酒业</td><td class='l'>白酒</td><td class='num'><b>10.0x</b></td><td class='num'>58x</td><td>2017-10</td><td class='num'>101</td><td class='num'>0.90</td><td class='num'>15</td><td class='num'>0.9</td><td class='num'>15x</td></tr>
+<tr><td>168</td><td class='l'>马应龙</td><td class='l'>中成药</td><td class='num'><b>10.0x</b></td><td class='num'>12x</td><td>2015-05</td><td class='num'>22</td><td class='num'>2.28</td><td class='num'>13</td><td class='num'>10.9</td><td class='num'>10x</td></tr>
+    </table>
+    </div>
+  </details>
+  <p class="sub">起点财务 = 2005 年报（2006-09 时点最近可得年报）；净利倍数 = 2025 年报归母净利 / 2005 年报归母净利。</p>
+</section>
+
+<section>
+  <h2><span class="no">叁</span>坐过山车的 336 只：十倍易得，守住太难</h2>
+  <div class="grid2">
+    <div>
+      <p>曾达 10x 但终点不足 10x 的有 <b>336 只</b>——占所有曾达者的 <b>67%</b>。包括：</p>
+      <ul style="font-size:13px;padding-left:18px;">
+        <li><b>万科A</b>：曾 16.1x → 终值 2.2x（地产周期终结）</li>
+        <li><b>平安银行</b>：曾 13.3x → 终值 8.0x</li>
+        <li><b>多只退市股</b>：曾达 10x 后退市归零（国华退 12.2x → 0.2x）</li>
+      </ul>
+      <div class="concl" style="margin-top:10px;">
+        「买入持有不动」在二十年维度有 <b>2/3 概率把 10x 还回去</b>。卖出纪律（基本面证伪 / 产业逻辑终结）不是可选项，是十倍股策略的另一半。
+      </div>
+    </div>
+    <div>
+      <table>
+        <tr><th>名称</th><th>曾达峰值</th><th>终值</th><th>落差</th></tr>
+        <tr><td class='l'>*ST华幸</td><td class='num'>120.6x</td><td class='num'><b class='neg'>4.1x</b></td><td class='num neg'>还回 116 倍</td></tr>
+<tr><td class='l'>金证股份</td><td class='num'>50.3x</td><td class='num'><b class='neg'>9.1x</b></td><td class='num neg'>还回 41 倍</td></tr>
+<tr><td class='l'>康美药业</td><td class='num'>40.7x</td><td class='num'><b class='neg'>2.5x</b></td><td class='num neg'>还回 38 倍</td></tr>
+<tr><td class='l'>酒鬼酒</td><td class='num'>37.9x</td><td class='num'><b class='neg'>6.2x</b></td><td class='num neg'>还回 32 倍</td></tr>
+<tr><td class='l'>达安基因</td><td class='num'>35.3x</td><td class='num'><b class='neg'>8.1x</b></td><td class='num neg'>还回 27 倍</td></tr>
+<tr><td class='l'>美年健康</td><td class='num'>34.3x</td><td class='num'><b class='neg'>7.6x</b></td><td class='num neg'>还回 27 倍</td></tr>
+<tr><td class='l'>国际医学</td><td class='num'>35.1x</td><td class='num'><b class='neg'>8.8x</b></td><td class='num neg'>还回 26 倍</td></tr>
+<tr><td class='l'>*ST启环</td><td class='num'>27.5x</td><td class='num'><b class='neg'>1.3x</b></td><td class='num neg'>还回 26 倍</td></tr>
+<tr><td class='l'>用友网络</td><td class='num'>33.3x</td><td class='num'><b class='neg'>7.5x</b></td><td class='num neg'>还回 26 倍</td></tr>
+<tr><td class='l'>通威股份</td><td class='num'>33.7x</td><td class='num'><b class='neg'>9.1x</b></td><td class='num neg'>还回 25 倍</td></tr>
+<tr><td class='l'>信雅达</td><td class='num'>30.2x</td><td class='num'><b class='neg'>5.9x</b></td><td class='num neg'>还回 24 倍</td></tr>
+<tr><td class='l'>海南海药</td><td class='num'>30.7x</td><td class='num'><b class='neg'>7.5x</b></td><td class='num neg'>还回 23 倍</td></tr>
+<tr><td class='l'>中恒集团</td><td class='num'>32.4x</td><td class='num'><b class='neg'>9.8x</b></td><td class='num neg'>还回 23 倍</td></tr>
+<tr><td class='l'>ST得润</td><td class='num'>24.7x</td><td class='num'><b class='neg'>2.4x</b></td><td class='num neg'>还回 22 倍</td></tr>
+<tr><td class='l'>退市创兴</td><td class='num'>22.4x</td><td class='num'><b class='neg'>0.1x</b></td><td class='num neg'>还回 22 倍</td></tr>
+<tr><td class='l'>贝瑞基因</td><td class='num'>24.9x</td><td class='num'><b class='neg'>2.8x</b></td><td class='num neg'>还回 22 倍</td></tr>
+<tr><td class='l'>派林生物</td><td class='num'>30.7x</td><td class='num'><b class='neg'>9.3x</b></td><td class='num neg'>还回 21 倍</td></tr>
+<tr><td class='l'>文投控股</td><td class='num'>23.2x</td><td class='num'><b class='neg'>2.0x</b></td><td class='num neg'>还回 21 倍</td></tr>
+<tr><td class='l'>山东药玻</td><td class='num'>28.9x</td><td class='num'><b class='neg'>7.9x</b></td><td class='num neg'>还回 21 倍</td></tr>
+<tr><td class='l'>神州高铁</td><td class='num'>25.7x</td><td class='num'><b class='neg'>5.2x</b></td><td class='num neg'>还回 20 倍</td></tr>
+<tr><td class='l'>神州信息</td><td class='num'>29.3x</td><td class='num'><b class='neg'>9.0x</b></td><td class='num neg'>还回 20 倍</td></tr>
+<tr><td class='l'>中炬高新</td><td class='num'>27.0x</td><td class='num'><b class='neg'>6.7x</b></td><td class='num neg'>还回 20 倍</td></tr>
+<tr><td class='l'>双鹭药业</td><td class='num'>25.6x</td><td class='num'><b class='neg'>5.4x</b></td><td class='num neg'>还回 20 倍</td></tr>
+<tr><td class='l'>妙可蓝多</td><td class='num'>27.4x</td><td class='num'><b class='neg'>7.6x</b></td><td class='num neg'>还回 20 倍</td></tr>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2><span class="no">肆</span>共同点一：起点画像——「平庸的大多数」</h2>
+  <p>二十倍股起点（2005 年报 + 2006-09 价格）与全市场对比：<b>没有一项指标显著偏离市场</b>。</p>
+  <div class="charts">
+    <div id="c_profile" class="chart"></div>
+    <div id="c_pct" class="chart"></div>
+  </div>
+  <table>
+    <tr><th>指标</th><th>20x股中位</th><th>全市场中位</th><th>差异</th><th>解读</th></tr>
+    <tr><td class="l">起点市值</td><td>11.9 亿</td><td>13.7 亿</td><td>持平（分位 43）</td><td class="l">不需要「小市值弹性」</td></tr>
+    <tr><td class="l">起点 PE</td><td>29.9 倍</td><td>34.8 倍</td><td>略低（分位 44）</td><td class="l">不需要「贵」，也不靠「便宜」</td></tr>
+    <tr><td class="l">起点 PB</td><td>2.05</td><td>2.04</td><td>持平</td><td class="l">—</td></tr>
+    <tr><td class="l">起点 ROE</td><td>6.7%</td><td>5.2%</td><td>略高（分位 59）</td><td class="l">「及格但不卓越」</td></tr>
+    <tr><td class="l">营收增速</td><td>17.0%</td><td>12.8%</td><td>略高（分位 58）</td><td class="l">同上</td></tr>
+    <tr><td class="l">毛利率</td><td>19.4%</td><td>—</td><td>平庸</td><td class="l">护城河不是起点特征</td></tr>
+  </table>
+  <div class="concl">
+    对比十年组（PE 81 倍、显著贵于市场），二十倍股的起点「去特征化」印证：<b>窗口越长，起点信息越不重要，过程信息（产业周期 + 公司进化）越重要</b>。十年十倍股靠单轮产业趋势（起点必须"贵得有理由"），二十年十倍股靠多轮周期复利（起点只需"活着且不差"）。
+  </div>
+</section>
+
+<section>
+  <h2><span class="no">伍</span>共同点二：行业百花齐放 + 盈利驱动 + 牛市兑现</h2>
+  <div class="charts">
+    <div id="c_ind" class="chart"></div>
+    <div id="c_fy" class="chart"></div>
+  </div>
+  <div class="grid2">
+    <div class="card">
+      <h4>① 行业极度分散（vs 十年组的电子垄断）</h4>
+      <ul>
+        <li>前 9 大行业各只占 6-9 只：电气设备、通信设备、化学制药、家电、中成药、白酒、农药化肥、半导体、航空</li>
+        <li>覆盖 <b>56 个行业</b>——消费、周期（黄金/煤炭/稀土）、制造升级、公用事业全部在列</li>
+        <li>对照十年组：电子硬件链 12/20 一家独大</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>② 盈利是唯一硬共同点</h4>
+      <ul>
+        <li>净利中位涨 <b>22 倍</b>、营收中位涨 16 倍（2005→2025 年报）</li>
+        <li>格力净利 +56.9x、茅台 +73.6x、浪潮信息 +288x——涨幅的绝大部分由盈利解释</li>
+        <li>与十年组（净利 +21.5x）同构：<b>十倍股的本质是盈利十倍</b></li>
+      </ul>
+    </div>
+  </div>
+  <div class="card" style="margin-top:14px;">
+    <h4>③ 首次 10x 的时间规律：牛市批量兑现</h4>
+    <ul>
+      <li><b>2015 年牛市一次性兑现 51 只</b>（占全部 168 只的 30%）；2010 年 20 只、2017 年 16 只、2014 年 16 只</li>
+      <li>起点到首次 10x 的中位等待约 <b>6-8 年</b>——即便买中，也大概率要熬过 2008（-70%）与 2011-2014 长熊</li>
+      <li>含义：<b>「等得起」是十倍股策略的隐性成本</b>；2015/2021 泡沫期不减仓 = 把纸面 10x 交还市场（呼应第叁节）</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <h2><span class="no">陆</span>2006 时点识别规则测试：能不能提前找到？</h2>
+  <p>用 2006-09-12 时点全部可见信息（2005 年报 + 当时价格），测试 8 类经典选股规则：</p>
+  <table>
+    <tr><th>规则</th><th>组合规模</th><th>终值10x命中</th><th>曾达10x命中</th><th>精度</th><th>vs 随机(12.4%)</th></tr>
+    <tr><td class='l'>ROE>10% & 营收增速>20%（质量+成长）</td><td class='num'>182</td><td class='num'>33</td><td class='num'>60</td><td class='num'>18.1%</td><td class='num'>+5.7pp</td></tr>
+<tr><td class='l'>ROE>15% & 增速>30%（严格质量+成长）</td><td class='num'>76</td><td class='num'>13</td><td class='num'>27</td><td class='num'>17.1%</td><td class='num'>+4.7pp</td></tr>
+<tr><td class='l'>ROE>15%（质量派）</td><td class='num'>158</td><td class='num'>24</td><td class='num'>50</td><td class='num'>15.2%</td><td class='num'>+2.8pp</td></tr>
+<tr><td class='l'>ROE>15% & PE<30（质量+合理价）</td><td class='num'>134</td><td class='num'>20</td><td class='num'>42</td><td class='num'>14.9%</td><td class='num'>+2.5pp</td></tr>
+<tr><td class='l'>市值<50亿（小市值）</td><td class='num'>1120</td><td class='num'>137</td><td class='num'>429</td><td class='num'>12.2%</td><td class='num'>-0.2pp</td></tr>
+<tr><td class='l'>营收增速>30%（纯成长派）</td><td class='num'>298</td><td class='num'>35</td><td class='num'>103</td><td class='num'>11.7%</td><td class='num'>-0.7pp</td></tr>
+<tr><td class='l'>PE<20 & PB<2（便宜派）</td><td class='num'>175</td><td class='num'>14</td><td class='num'>47</td><td class='num'>8.0%</td><td class='num'>-4.4pp</td></tr>
+<tr><td class='l'>PEG<1（林奇派）</td><td class='num'>1</td><td class='num'>0</td><td class='num'>0</td><td class='num'>0.0%</td><td class='num'>-12.4pp</td></tr>
+    <tr style="background:var(--chip);"><td class="l"><b>全市场（无规则）</b></td><td class="num">1,272</td><td class="num">158</td><td class="num">475</td><td class="num"><b>12.42%</b></td><td class="num">基线</td></tr>
+  </table>
+  <div id="c_rules" class="chart-full"></div>
+  <div class="grid2">
+    <div class="card">
+      <h4>✅ 唯一稳定有效的还是「质量+成长」</h4>
+      <ul>
+        <li><b>ROE>10% & 营收增速>20%</b>：精度 18.1%，随机基线的 1.46 倍，但依然漏掉 80% 的十倍股</li>
+        <li>该规则 2006 年命中的 13 只全是后来的核心资产：<span class="tags"><span class="tag">云南白药</span><span class="tag">格力电器</span><span class="tag">神火股份</span><span class="tag">思源电气</span><span class="tag">三花智控</span><span class="tag">生益科技</span><span class="tag">万华化学</span><span class="tag">华阳股份</span><span class="tag">浙江龙盛</span><span class="tag">华鲁恒升</span><span class="tag">片仔癀</span><span class="tag">贵州茅台</span><span class="tag">山东黄金</span></span></li>
+        <li>质量派（ROE>15%）单独用精度 15.2%——质量是正向但弱的信号，与十年组结论一致</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>❌ 三个经典流派再次失败</h4>
+      <ul>
+        <li><b>便宜派（PE<20&PB<2）：精度 8.0%，低于随机</b>——负选股！起点便宜与二十年十倍负相关</li>
+        <li>PEG<1（林奇派）：2006 时点仅 1 只达标（EPS 增速数据缺失+高增长股不便宜）</li>
+        <li>小市值：精度与随机持平（2006 年市值普遍小，无区分度）</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2><span class="no">柒</span>十年 vs 二十年：同一市场，两种十倍股逻辑</h2>
+  <table>
+    <tr><th style="width:24%">维度</th><th>十年组（2016→2026）</th><th>二十年组（2006→2026）</th></tr>
+    <tr><td class='l'>起点窗口</td><td class='l'>2016-09 → 2026-09</td><td class='l'>2006-09 → 2026-09</td></tr>
+<tr><td class='l'>起点样本（已上市）</td><td class='l'>2,637 只</td><td class='l'>1,348 只</td></tr>
+<tr><td class='l'>终值≥10x</td><td class='l'>20 只（0.76%）</td><td class='l'>168 只（12.5%）</td></tr>
+<tr><td class='l'>曾摸到≥10x</td><td class='l'>未统计</td><td class='l'>504 只（37.4%）</td></tr>
+<tr><td class='l'>坐过山车（曾达未守住）</td><td class='l'>未统计</td><td class='l'>336 只（占曾达 67%）</td></tr>
+<tr><td class='l'>起点 PE 中位（vs 全市场）</td><td class='l'>81 倍（vs 63）</td><td class='l'>30 倍（vs 35）</td></tr>
+<tr><td class='l'>起点市值中位（vs 全市场）</td><td class='l'>82 亿（vs 84）</td><td class='l'>12 亿（vs 14）</td></tr>
+<tr><td class='l'>起点 ROE 中位（vs 全市场）</td><td class='l'>分位 76，绝对值平庸</td><td class='l'>6.7%（vs 5.2%）</td></tr>
+<tr><td class='l'>行业结构</td><td class='l'>电子硬件链 12/20（单轮产业趋势）</td><td class='l'>前 9 大行业各 6-9 只（多轮周期叠加）</td></tr>
+<tr><td class='l'>静态规则最强精度</td><td class='l'>1.98%（随机 3.4 倍）</td><td class='l'>18.1%（随机 1.5 倍）</td></tr>
+<tr><td class='l'>净利倍数中位</td><td class='l'>+21.5x</td><td class='l'>+22x</td></tr>
+<tr><td class='l'>典型兑现节奏</td><td class='l'>13/20 在 2024 后才达 10x</td><td class='l'>首次 10x 集中于 2010/2014/2015/2017（多轮牛熊）</td></tr>
+  </table>
+  <div class="concl">
+    <b>统一框架下的解读</b>：十倍股概率随窗口拉长 16 倍，本质是「年化 13%」与「年化 26%」的复利差。十年十倍必须踩中单轮超级产业趋势（起点贵、行业集中、静态规则精度 2%）；二十年十倍只需「中上的质量 × 活下来 × 两三轮周期」（起点平庸、行业分散、规则精度 18% 但信号弱）。<b>共同的不变量只有一个：盈利增长（+21.5x / +22.3x）扛下全部涨幅，以及——估值便宜从来不是十倍股的起点特征。</b>
+  </div>
+</section>
+
+<section>
+  <h2><span class="no">捌</span>方法论更新：五层体系 → 六层体系（新增卖出纪律）</h2>
+  <div class="grid2">
+    <div class="card">
+      <h4>识别端（怎么找到）</h4>
+      <ul>
+        <li><b>1. 质量门限做底仓</b>：ROE>10% & 增速>20% 宽筛——二十年口径精度 18%（1.46 倍随机），是唯一两个周期都验证有效的静态规则</li>
+        <li><b>2. 放弃预测单只</b>：即便最强规则也漏 80%；用组合（30-50 只）承接 12-18% 的命中概率，赚赔率不赚胜率</li>
+        <li><b>3. 产业趋势做放大器</b>：十年组证明单轮趋势股（起点贵）弹性最大；二十年组证明多轮叠加（家电→白酒→黄金→AI 硬件）才是常态——每年检视持仓是否踩在当轮趋势上</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>持有与卖出端（怎么拿住）</h4>
+      <ul>
+        <li><b>4. 拿得住的前置条件是「等得起」</b>：中位等待 6-8 年、中途必有 -50% 级回撤；仓位设计必须让人扛得过 2008</li>
+        <li><b>5. 卖出纪律 = 证伪而非回撤</b>：产业逻辑终结（万科式）或公司竞争力恶化才卖；单纯下跌/涨多了不是理由</li>
+        <li><b>6. 泡沫兑现纪律</b>：2015 年批量制造 51 只十倍股、其中 2/3 后来还回去——牛市后段对「曾达 5x+」的持仓做部分止盈，是对幂律分布最现实的妥协</li>
+      </ul>
+    </div>
+  </div>
+  <div class="concl" style="margin-top:14px;">
+    与前两份报告的衔接：价值因子体系（双门限 6.3%）负责防守与底仓；十倍股体系负责进攻端。<b>两者互补 = GARP + 趋势定位 + 卖出纪律</b>。
+  </div>
+</section>
+
+<footer>
+  数据来源：本地 PostgreSQL（tushare 行情/财务，2006-2026；已补齐 2010-2015 断档）｜ 脚本：scripts/tenbagger_20y.py ｜ 结果：outputs/tenbagger_20y.json<br>
+  本报告基于公开数据与量化统计，仅供研究参考，不构成投资建议。市场有风险，投资需谨慎。过往表现不预示未来收益。
+</footer>
+
+</div>
+<script>
+var AX = {axisLine: {lineStyle: {color:'#8a93a8'}}, axisLabel: {color:'#5a6478'}};
+function mk(id, opt) {
+  var el = document.getElementById(id); if (!el) return;
+  var c = echarts.init(el);
+  c.setOption(Object.assign({textStyle: {fontFamily: '-apple-system, PingFang SC, sans-serif'}}, opt));
+  window.addEventListener('resize', function(){c.resize();});
+}
+
+mk('c_profile', {
+  title: {text: '起点画像：20x股 vs 全市场（中位数）', left:'center', textStyle:{fontSize:13}},
+  tooltip: {},
+  xAxis: Object.assign({type:'category', data:["\u5e02\u503c(\u4ebf)", "PE", "PB", "ROE%", "\u8425\u6536\u589e\u901f%"]}, AX),
+  yAxis: Object.assign({type:'value'}, AX),
+  series: [
+    {name:'二十年10x股', type:'bar', data:[11.9, 29.9, 2.05, 6.7, 17.0], itemStyle:{color:'#c0392b'}, barGap:0},
+    {name:'全市场', type:'bar', data:[13.7, 34.8, 2.04, 5.2, 12.8], itemStyle:{color:'#8ea3bd'}}
+  ],
+  legend: {bottom:0}
+});
+
+mk('c_pct', {
+  title: {text: '起点市场分位（50=市场中位）', left:'center', textStyle:{fontSize:13}},
+  tooltip: {},
+  radar: {
+    indicator: ["\u5e02\u503c\u5206\u4f4d", "PE\u5206\u4f4d", "ROE\u5206\u4f4d", "\u8425\u6536\u589e\u901f\u5206\u4f4d"].map(function(k){return {name:k, max:100};}),
+    center:['50%','52%'], radius:'62%'
+  },
+  series: [{type:'radar', data:[{value:[42.9, 43.8, 59.2, 57.5], name:'20x股分位中位', areaStyle:{opacity:0.35, color:'#2c5f8a'}, lineStyle:{color:'#2c5f8a'}}]}]
+});
+
+mk('c_ind', {
+  title: {text: '行业分布 Top15（共56个行业）', left:'center', textStyle:{fontSize:13}},
+  tooltip: {},
+  grid: {left:90, right:20, top:30, bottom:24},
+  xAxis: Object.assign({type:'value'}, AX),
+  yAxis: Object.assign({type:'category', data:["电气设备", "通信设备", "化学制药", "家用电器", "中成药", "白酒", "农药化肥", "半导体", "航空", "汽车配件", "专用机械", "黄金", "煤炭开采", "水力发电", "工程机械"].reverse()}, AX),
+  series: [{type:'bar', data:[9, 9, 8, 7, 7, 7, 7, 7, 6, 6, 6, 5, 4, 4, 4].slice().reverse(), itemStyle:{color:'#2c5f8a'}, label:{show:true, position:'right'}}]
+});
+
+mk('c_fy', {
+  title: {text: '首次达到10x的年份分布（牛市批量兑现）', left:'center', textStyle:{fontSize:13}},
+  tooltip: {},
+  grid: {left:36, right:16, top:30, bottom:24},
+  xAxis: Object.assign({type:'category', data:["2007", "2008", "2009", "2010", "2011", "2013", "2014", "2015", "2016", "2017", "2018", "2019", "2020", "2021", "2022", "2023", "2024", "2025", "2026"]}, AX),
+  yAxis: Object.assign({type:'value'}, AX),
+  series: [{type:'bar', data:[2, 3, 3, 20, 2, 3, 16, 51, 4, 16, 2, 2, 6, 10, 2, 5, 6, 8, 7], itemStyle:{color:function(p){return p.dataIndex>=8&&p.dataIndex<=9?'#c0392b':'#b0894d';}},
+    markLine:{data:[{yAxis:51, name:'2015牛市'}], lineStyle:{color:'#c0392b'}, label:{formatter:'2015牛市: 51只'}}}]
+});
+
+mk('c_rules', {
+  title: {text: '识别规则精度 vs 随机基线（12.42%）', left:'center', textStyle:{fontSize:13}},
+  tooltip: {},
+  grid: {left:170, right:40, top:30, bottom:24},
+  xAxis: Object.assign({type:'value', max:20}, AX),
+  yAxis: Object.assign({type:'category', data:["ROE>10% & 营收增速>20%", "ROE>15% & 增速>30%", "ROE>15%", "ROE>15% & PE<30", "市值<50亿", "营收增速>30%", "PE<20 & PB<2", "PEG<1"].reverse()}, AX),
+  series: [
+    {type:'bar', data:[18.13, 17.11, 15.19, 14.93, 12.23, 11.74, 8.0, 0.0].slice().reverse(),
+      itemStyle:{color:function(p){return p.value>=12.42?'#c0392b':'#9aa4b8';}},
+      label:{show:true, position:'right', formatter:'{c}%'}},
+    {type:'bar', data:["ROE>10% & 营收增速>20%", "ROE>15% & 增速>30%", "ROE>15%", "ROE>15% & PE<30", "市值<50亿", "营收增速>30%", "PE<20 & PB<2", "PEG<1"].map(function(){return 12.42;}), barWidth:2, itemStyle:{color:'#1a7a4a'}, silent:true, tooltip:{show:false}}
+  ]
+});
+</script>
+</body>
+</html>

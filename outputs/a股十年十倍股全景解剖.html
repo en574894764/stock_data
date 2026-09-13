@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>A股十年十倍股全景解剖：名单、共同基因与早期识别方法论</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<style>
+  :root { --primary:#1f4e79; --accent:#c0392b; --muted:#5a6b7d; --line:#dde5ee; --bg:#f5f7fa; --card:#ffffff; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:#22303f; line-height:1.75; font-size:15px; }
+  .wrap { max-width:1080px; margin:0 auto; padding:28px 20px 60px; }
+  header.hero { background:linear-gradient(135deg,#17365d 0%,#1f4e79 60%,#2e6da4 100%); color:#fff; border-radius:14px; padding:38px 40px; margin-bottom:26px; }
+  header.hero h1 { font-size:26px; letter-spacing:.5px; margin-bottom:12px; }
+  header.hero .sub { opacity:.88; font-size:14px; }
+  header.hero .meta { margin-top:16px; font-size:12.5px; opacity:.75; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:26px 30px; margin-bottom:22px; box-shadow:0 1px 4px rgba(31,78,121,.06); }
+  .card h2 { font-size:19px; color:var(--primary); border-left:4px solid var(--accent); padding-left:12px; margin-bottom:16px; }
+  .card h3 { font-size:16px; color:var(--primary); margin:20px 0 10px; }
+  p { margin-bottom:10px; }
+  .kpi-row { display:flex; gap:14px; flex-wrap:wrap; margin:18px 0; }
+  .kpi { flex:1; min-width:150px; background:#f0f5fb; border:1px solid var(--line); border-radius:10px; padding:14px 16px; text-align:center; }
+  .kpi .num { font-size:24px; font-weight:700; color:var(--accent); }
+  .kpi .lbl { font-size:12.5px; color:var(--muted); margin-top:2px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; margin:14px 0; }
+  th { background:#1f4e79; color:#fff; padding:7px 9px; text-align:center; font-weight:500; white-space:nowrap; }
+  td { padding:6px 9px; border-bottom:1px solid var(--line); text-align:center; white-space:nowrap; }
+  tr:nth-child(even) td { background:#f7fafd; }
+  .hl td { background:#fdf1ef !important; font-weight:600; }
+  .note { background:#fff8e6; border:1px solid #f0dfa8; border-radius:8px; padding:12px 16px; font-size:13.5px; color:#6b5316; margin:14px 0; }
+  .insight { background:#eef4fb; border-left:4px solid var(--primary); border-radius:0 8px 8px 0; padding:12px 18px; margin:14px 0; }
+  .insight b { color:var(--accent); }
+  .chart { width:100%; height:340px; margin:12px 0; }
+  .chart2 { width:100%; height:300px; margin:12px 0; }
+  ul, ol { padding-left:22px; margin-bottom:10px; }
+  li { margin-bottom:6px; }
+  .tag { display:inline-block; background:#e8eef6; color:#1f4e79; border-radius:4px; padding:1px 8px; font-size:12px; margin:0 3px; }
+  .footer { font-size:12px; color:var(--muted); border-top:1px solid var(--line); padding-top:14px; margin-top:8px; }
+  .two-col { display:flex; gap:18px; flex-wrap:wrap; }
+  .two-col > div { flex:1; min-width:320px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>A股十年十倍股全景解剖<br>—— 名单、共同基因与早期识别方法论</h1>
+  <div class="sub">数据窗口：2016-09-12 → 2026-09-11（整整十年）｜全市场 2,637 只可比样本｜本地 PostgreSQL 全量行情 + 财务数据实证</div>
+  <div class="meta">复现脚本 scripts/tenbagger_analysis.py ｜ 结果数据 outputs/tenbagger_analysis.json ｜ 生成日期 2026-09-12</div>
+</header>
+
+<!-- ============ 摘要 ============ -->
+<div class="card">
+  <h2>摘要：三问三答</h2>
+  <div class="kpi-row">
+    <div class="kpi"><div class="num">20 / 2637</div><div class="lbl">十年终值≥10倍（命中率 0.76%）</div></div>
+    <div class="kpi"><div class="num">60%</div><div class="lbl">属于电子硬件链（12/20）</div></div>
+    <div class="kpi"><div class="num">21.5 倍</div><div class="lbl">起点至今归母净利中位增幅</div></div>
+    <div class="kpi"><div class="num">0 / 20</div><div class="lbl">"低估值买入"规则命中的数量</div></div>
+  </div>
+  <ol>
+    <li><b>名单</b>：整十年窗口、起点前已上市的 A 股 2,637 只中，终值 ≥ 10 倍的仅 20 只。榜首中际旭创（终值 108 倍）、长芯博创（68 倍）、新易盛（51 倍）——前三名全部是 AI 光模块。</li>
+    <li><b>共同点</b>：不是"便宜的好公司"，而是"景气产业中的成长兑现者"——起点 PE 中位 81 倍（全市场 63 倍）、起点市值中位 82 亿（与全市场持平）、盈利增长贡献了绝大部分涨幅（净利中位涨 21.5 倍）、14/20 只在 2024 年之后才首次达到 10 倍（需要拿住 7 年平庸期）。</li>
+    <li><b>早期识别</b>：用 2016 年时点可见的任何静态财务规则（质量派/成长派/便宜派/小市值派）识别这 20 只，最强规则只命中 2/20，便宜派命中 0/20。十倍股的核心变量是<b>产业趋势拐点</b>，不可从起点财务报表线性外推；可行路径是"产业趋势定位 + 成长股组合宽筛 + 允许追涨确认 + 长期持有吃幂律"。</li>
+  </ol>
+  <div class="insight"><b>与上一份价值投资报告的关系</b>：价值因子（低 PE/PB）长期有效（IC 5-6.7%）解决的是<b>"不亏大钱、稳稳赚钱"</b>；十倍股实证说明另一个极端——<b>"涨 10 倍的股票从来都不便宜，且起点财务平庸"</b>。两者不矛盾：价值是组合的防守纪律，成长是进攻引擎，GARP（以合理价格买成长）是两者的交集，也是林奇 tenbagger 方法论的本意。</div>
+</div>
+
+<!-- ============ 第一部分：名单 ============ -->
+<div class="card">
+  <h2>一、过去十年（2016.9 → 2026.9）涨了 10 倍以上的 A 股名单</h2>
+  <p><b>口径</b>：区间起点（2016-09-12）前已上市、非北交所；区间终值（含本金）≥ 10 倍，即区间涨幅 ≥ 900%；复权口径为日涨跌幅连乘（含分红除权修正）。严格按"涨幅 ≥ 10 倍（终值 ≥ 11 倍）"计为 16 只，本表为完整 20 只。"净利倍数"为 2015 年报 → 2025 年报归母净利润之比；"EPS 倍数"由涨幅 ÷ PE 变化反推（衡量盈利对涨幅的实际贡献）。</p>
+  <table>
+    <thead><tr>
+      <th>代码</th><th>名称</th><th>行业</th><th>终值倍数</th><th>首次达10倍</th><th>起点市值(亿)</th><th>起点PE</th><th>起点ROE(年化)</th><th>营收倍数</th><th>净利倍数</th><th>EPS倍数</th>
+    </tr></thead>
+    <tbody>
+      <tr class="hl"><td>300308.SZ</td><td>中际旭创</td><td>通信设备</td><td>107.7</td><td>2023-04</td><td>29.4</td><td>183</td><td>1.9%</td><td>315.0</td><td>1930</td><td>370</td></tr>
+      <tr class="hl"><td>300548.SZ</td><td>长芯博创</td><td>通信设备</td><td>67.7</td><td>2020-02</td><td>14.0</td><td>23.7</td><td>20.7%</td><td>10.7</td><td>7.6</td><td>12.8</td></tr>
+      <tr class="hl"><td>300502.SZ</td><td>新易盛</td><td>通信设备</td><td>50.7</td><td>2024-09</td><td>79.3</td><td>86.6</td><td>13.2%</td><td>40.4</td><td>101</td><td>97.8</td></tr>
+      <tr><td>300394.SZ</td><td>天孚通信</td><td>通信设备</td><td>27.9</td><td>2024-10</td><td>66.9</td><td>57.7</td><td>17.5%</td><td>21.8</td><td>19.5</td><td>13.1</td></tr>
+      <tr><td>002463.SZ</td><td>沪电股份</td><td>元器件</td><td>22.3</td><td>2025-01</td><td>87.7</td><td>113</td><td>1.9%</td><td>5.6</td><td>690</td><td>51.5</td></tr>
+      <tr><td>002371.SZ</td><td>北方华创</td><td>半导体</td><td>21.8</td><td>2021-07</td><td>158.1</td><td>402</td><td>2.2%</td><td>46.1</td><td>143</td><td>108</td></tr>
+      <tr><td>603067.SH</td><td>振华股份</td><td>化工原料</td><td>20.6</td><td>2025-10</td><td>19.4</td><td>20.8</td><td>13.4%</td><td>5.8</td><td>10.5</td><td>10.7</td></tr>
+      <tr><td>300475.SZ</td><td>香农芯创</td><td>元器件</td><td>16.1</td><td>2025-10</td><td>49.6</td><td>47.5</td><td>9.4%</td><td>91.7</td><td>5.2</td><td>39.2</td></tr>
+      <tr><td>300476.SZ</td><td>胜宏科技</td><td>元器件</td><td>16.0</td><td>2025-07</td><td>96.7</td><td>60.7</td><td>15.0%</td><td>15.0</td><td>34.1</td><td>21.7</td></tr>
+      <tr><td>601100.SH</td><td>恒立液压</td><td>工程机械</td><td>15.4</td><td>2020-07</td><td>79.6</td><td>154</td><td>1.6%</td><td>10.1</td><td>43.0</td><td>48.6</td></tr>
+      <tr><td>002384.SZ</td><td>东山精密</td><td>元器件</td><td>14.5</td><td>2026-03</td><td>152.1</td><td>118</td><td>11.0%</td><td>10.0</td><td>43.7</td><td>17.1</td></tr>
+      <tr><td>002028.SZ</td><td>思源电气</td><td>电气设备</td><td>13.6</td><td>2025-09</td><td>83.7</td><td>21.7</td><td>7.3%</td><td>5.4</td><td>8.2</td><td>9.3</td></tr>
+      <tr><td>300390.SZ</td><td>天华新能</td><td>电气设备</td><td>13.6</td><td>2021-08</td><td>45.1</td><td>129</td><td>2.8%</td><td>16.4</td><td>8.5</td><td>110</td></tr>
+      <tr><td>601899.SH</td><td>紫金矿业</td><td>铜</td><td>12.4</td><td>2025-09</td><td>693.6</td><td>81.3</td><td>4.0%</td><td>4.7</td><td>31.3</td><td>79.8</td></tr>
+      <tr><td>600183.SH</td><td>生益科技</td><td>元器件</td><td>11.8</td><td>2025-12</td><td>184.6</td><td>29.3</td><td>13.7%</td><td>3.7</td><td>6.1</td><td>5.0</td></tr>
+      <tr><td>603738.SH</td><td>泰晶科技</td><td>元器件</td><td>11.3</td><td>2026-04</td><td>15.5</td><td>30.9</td><td>18.3%</td><td>2.9</td><td>1.0</td><td>2.1</td></tr>
+      <tr><td>600809.SH</td><td>山西汾酒</td><td>白酒</td><td>10.9</td><td>2020-09</td><td>170.4</td><td>28.4</td><td>16.1%</td><td>9.4</td><td>23.5</td><td>22.7</td></tr>
+      <tr><td>002648.SZ</td><td>卫星化学</td><td>化工原料</td><td>10.6</td><td>2026-08</td><td>77.6</td><td>亏损</td><td>1.0%</td><td>11.0</td><td>扭亏</td><td>—</td></tr>
+      <tr><td>002714.SZ</td><td>牧原股份</td><td>农业综合</td><td>10.1</td><td>2020-06</td><td>258.0</td><td>15.9</td><td>52.9%</td><td>48.0</td><td>26.0</td><td>—</td></tr>
+      <tr><td>603986.SH</td><td>兆易创新</td><td>半导体</td><td>10.0</td><td>2026-01</td><td>169.3</td><td>91.3</td><td>29.1%</td><td>7.7</td><td>10.4</td><td>27.8</td></tr>
+    </tbody>
+  </table>
+  <div class="note">注：长芯博创/振华股份/泰晶科技 2016 年 9-10 月上市，窗口略短于十年；卫星化学起点 PE 为负（2016 上半年亏损），牧原/卫星化学 EPS 倍数因起点估值不可比未计算。泰晶科技是表中唯一"净利基本没涨、纯估值驱动"的例外。</div>
+</div>
+
+<!-- ============ 第二部分：共同点 ============ -->
+<div class="card">
+  <h2>二、这 20 只股票的详细情况与共同点</h2>
+
+  <h3>2.1 行业分布：一条产业浪潮贡献了 60% 的十倍股</h3>
+  <div id="chartIndustry" class="chart"></div>
+  <p>通信设备 4 只（中际旭创、长芯博创、新易盛、天孚通信）+ 元器件 6 只（沪电、香农、胜宏、东山、生益、泰晶）+ 半导体 2 只（北方华创、兆易创新）= <b>电子硬件链 12/20</b>。这 12 只几乎全部直接受益于 2022-2026 年的全球 AI 算力资本开支周期（光模块、PCB、存储分销、半导体设备）。其余 8 只：紫金（金属牛市）、山西汾酒（消费龙头）、牧原（猪周期+集中度）、恒立液压（工程机械国产替代+出口）、思源电气（电网出海）、卫星化学（轻烃化工）、振华股份（铬盐）、天华新能（锂盐）。</p>
+  <div class="insight"><b>共同点 #1：最大的收益来源是产业 β，不是公司 α。</b>东吴证券对 2000-2020 年 120 只十倍股的研究同样发现"十倍股最强的 Beta 来自于产业趋势和技术革命"。选对赛道比选对公司重要——2016 年你即使选中了"最好的光模块公司"，如果 AI 没来，也不会有十倍。</div>
+
+  <h3>2.2 起点画像：不便宜、不小、财务只是中上</h3>
+  <div id="chartProfile" class="chart2"></div>
+  <table>
+    <thead><tr><th>起点（2016-09）指标</th><th>20 只十倍股中位</th><th>全市场中位</th><th>解读</th></tr></thead>
+    <tbody>
+      <tr><td>PE (TTM)</td><td><b>81 倍</b></td><td>63 倍</td><td>更贵，不是更便宜</td></tr>
+      <tr><td>总市值</td><td>82 亿</td><td>84 亿</td><td>与全市场持平（安信：50-200 亿是"明星股摇篮"）</td></tr>
+      <tr><td>ROE（2016 中报年化）</td><td>12.1%</td><td>6.5%</td><td>中上（市场分位 76%），但绝对值不顶尖</td></tr>
+      <tr><td>营收增速（2016 中报同比）</td><td>12.7%</td><td>6.3%</td><td>中上（分位 61%），仅 4 只超过 30%</td></tr>
+    </tbody>
+  </table>
+  <p>逐个看更刺眼：<b>中际旭创 2016 年 ROE 只有 1.9%、PE 183 倍</b>；沪电股份 ROE 1.9%、PE 113 倍；北方华创 ROE 2.2%、PE 402 倍；恒立液压 ROE 1.6%。这些如今的白马，起点时是市场眼中的"平庸贵货"。而起点财务最漂亮的牧原股份（ROE 52.9%、PE 15.9）确实是规则可识别的一只——它也是 20 只中<b>唯一"低估值+高质量"入场</b>的股票。</p>
+  <div class="insight"><b>共同点 #2：十倍股起点从来不便宜，财务也大多平庸。</b>安信证券对 60 只十年十倍股的复盘结论完全一致：涨幅中位数 1689% 中，盈利增长贡献 1688%、估值变动不到 1%；且十倍股起点估值中位 55.89 倍——"十倍股的估值从一开始就不便宜"。低 PE/低 PB 策略与十倍股基本绝缘（我们 2016 时点的"便宜派"规则命中 0/20）。</div>
+
+  <h3>2.3 收益归因：盈利增长扛起了几乎全部涨幅</h3>
+  <div id="chartAttrib" class="chart2"></div>
+  <p>中位数口径：十年间营收涨 10.4 倍、归母净利涨 21.5 倍、EPS 涨 25.2 倍。极端案例中际旭创：净利涨约 1930 倍（2015 年净利仅 0.2 亿量级），EPS 涨 370 倍，而 PE 从 183 倍降到 53 倍——<b>涨幅全部由盈利兑现，估值反而消化了七成</b>。这正是"以时间换空间、用业绩消化高估值"的教科书路径。</p>
+
+  <h3>2.4 时间结构：七年的平庸 + 最后两三年的兑现</h3>
+  <div id="chartTime" class="chart2"></div>
+  <p>按首次达到 10 倍的时点统计：2020 年 4 只、2021 年 2 只、2023 年 1 只、<b>2024 年 2 只、2025 年 7 只、2026 年 4 只</b>——13/20 的十倍股直到最近三年才兑现最后一倍。中际旭创 2023 年 4 月才 10 倍（随后三年又涨 10 倍），新易盛 2024 年 9 月、沪电 2025 年 1 月、东山精密 2026 年 3 月。</p>
+  <div class="insight"><b>共同点 #3：十倍需要 7-10 年，且最后一段最陡。</b>东吴统计十倍股平均用时 8 年；安信发现十倍股收益呈<b>幂律分布</b>——剔除涨幅最高的 3 周，十年收益平均减半（-51.6%）；剔除最好的 5 周，只剩三分之一。这意味着：(1) 前几年不涨是常态，多数人在黎明前下车；(2) 频繁调仓/做波段在数学上必然错过主升浪。这与我们上一份报告"年度调仓与月度调仓仅差 0.7pp"的实证互为印证。</div>
+</div>
+
+<!-- ============ 第三部分：方法论 ============ -->
+<div class="card">
+  <h2>三、怎么在早期找到它们？—— 实证 + 广泛调研</h2>
+
+  <h3>3.1 实证：站在 2016 年 9 月，用当时可见的信息能选出这 20 只吗？</h3>
+  <p>我们用 2016-09-12 时点完全可见的信息（2016 中报财务 + 当日估值/市值），测试了 8 类经典选股规则，统计每条规则选出的组合里包含几只未来的十倍股：</p>
+  <div id="chartRules" class="chart"></div>
+  <table>
+    <thead><tr><th>2016 时点规则</th><th>组合规模</th><th>命中 10x</th><th>命中名为何者</th></tr></thead>
+    <tbody>
+      <tr><td>ROE&gt;15%（质量派）</td><td>408 只</td><td>4 / 20</td><td>牧原、兆易、天孚、泰晶</td></tr>
+      <tr><td>营收增速&gt;30%（成长派）</td><td>580 只</td><td>5 / 20</td><td>牧原、兆易、长芯、北方华创、胜宏</td></tr>
+      <tr><td><b>PE&lt;20 且 PB&lt;2（便宜派）</b></td><td>126 只</td><td><b>0 / 20</b></td><td>—</td></tr>
+      <tr><td>市值&lt;80 亿（小市值）</td><td>1289 只</td><td>6 / 20</td><td>稀释后无精度</td></tr>
+      <tr><td>ROE&gt;15% 且 PE&lt;30（质量+合理价）</td><td>168 只</td><td>2 / 20</td><td>牧原、泰晶</td></tr>
+      <tr><td>ROE&gt;10% 且 增速&gt;20% 且 市值&lt;100 亿</td><td>96 只</td><td>2 / 20</td><td>长芯、胜宏</td></tr>
+      <tr><td><b>ROE&gt;15% 且 增速&gt;30%（质量+成长）</b></td><td>101 只</td><td><b>2 / 20</b>（精度 1.98%）</td><td>牧原、兆易</td></tr>
+      <tr><td>无规则（全市场）</td><td>2715 只</td><td>16 / 20</td><td>基准精度 0.59%</td></tr>
+    </tbody>
+  </table>
+  <div class="insight"><b>核心发现：静态财务规则的理论天花板约 2%。</b>最强规则（质量+成长）在 101 只的组合里只命中 2 只，精度 1.98%——约为随机（0.59%）的 3.4 倍，有信息量但远不足以"选出来"。而 18 只十倍股在 2016 年的财务画像里没有任何共性阈值能把它们圈出来。原因很简单：<b>它们的十倍来自 2022-2026 年的 AI 产业拐点，2016 年的报表里没有这个信息。</b>中际旭创 2016 年营收增速 31% 看起来还行，但当年它是给电信市场做中低端光模块的"普通公司"，AI 订单要在 6 年后出现。</div>
+
+  <h3>3.2 业界方法论调研：从林奇、欧奈尔到国内券商专题</h3>
+  <table>
+    <thead><tr><th>框架</th><th>核心规则</th><th>对早期识别的启示</th></tr></thead>
+    <tbody>
+      <tr><td><b>彼得·林奇 tenbagger</b></td><td>连续 3 年 EPS 增速 20%-50%；PEG&lt;1（PE 不超过增长率）；从日常生活/产业边缘发现"大家尚未发现的股票"</td><td>十倍来自"从小到大"，但林奇靠的是日复一日的高强度调研（每年拜访数百家公司），不是财务筛选</td></tr>
+      <tr><td><b>欧奈尔 CANSLIM</b></td><td>当季 EPS 同比 ≥20%、年度 ≥25%；新产品/新管理层/股价新高；小流通盘；行业龙头；机构认同；顺势大盘</td><td><b>这是"追涨确认"框架</b>：不预测谁会十倍，而是在业绩与股价双确认后买入——牺牲第一段涨幅换取确定性</td></tr>
+      <tr><td><b>东吴证券（120 只复盘）</b></td><td>起步小市值（上市日 17 亿）、高 PE 47 倍；净利年化 23%、ROE 13%、毛利 30%；研发占比 3.3%</td><td><b>十倍股可追涨</b>：股价每涨 50%，成为十倍股的概率从 22% 递增至 70%；5 倍股变十倍的概率 43%——上涨本身就是信息</td></tr>
+      <tr><td><b>安信证券（60 只复盘）</b></td><td>50-200 亿市值是摇篮；营收复合 &gt;15%、净利 &gt;20%、ROE &gt;15%、毛利 &gt;30%、分红 &lt;30%</td><td>两种路径：从小到大（成长兑现）与勇往无前（景气扩张）；长期逻辑证伪才是卖点，业绩 miss 只是噪音；<b>幂律分布决定不能下车</b></td></tr>
+      <tr><td><b>中航证券</b></td><td>医药出牛股概率最高；十倍牛股 PE 多在 0-30 倍区间启动（牛市期口径）</td><td>医药兼具高壁垒/刚需/小市值起点，是非牛市期十倍股密度最高的行业</td></tr>
+    </tbody>
+  </table>
+
+  <h3>3.3 综合推理：早期识别的现实方法论</h3>
+  <p>把本地实证与业界研究拼起来，答案是一个反直觉但自洽的体系：<b>"十倍股无法在起点被'选'出来，但可以被一套系统'接'住。"</b>具体五层：</p>
+  <ol>
+    <li><b>第一层：产业趋势定位（最大 β，决定你在不在场）。</b>12/20 的十倍股来自同一产业浪潮。可操作的信号不是预测未来技术，而是跟踪<b>渗透率 S 曲线 5%-20% 的拐点区间</b>（安信：渗透率红利→市占率竞争是十倍股两大 alpha 来源）。2016 年无法预知 AI，但 2023 年 AI 渗透率拐点是肉眼可见的——那时中际旭创才 10 倍起点，"晚"入场仍有 10 倍空间。</li>
+    <li><b>第二层：成长股组合宽筛（放弃个股精确制导）。</b>既然最强静态规则精度只有 2%，就承认它：用"质量+成长"宽规则（ROE&gt;10%、增速&gt;20%、市值&lt;200 亿）持有一个 100 只左右的池子，让 2% × 10 倍赔率的数学期望在组合层面兑现。同时用估值/质量纪律（上一份报告的双门限体系）控制池子里的价值陷阱和尾部雷。</li>
+    <li><b>第三层：允许追涨确认（用上涨消化不确定性）。</b>东吴数据：涨 50% 后成十倍概率 22%→70% 递增；5 倍→10 倍概率 43%。CANSLIM 本质就是把"早期识别"改为"早期确认"。实操：对池内标的设置业绩+股价双确认的加仓触发器（如季度营收增速连续两季 &gt;50%、创 52 周新高），把一次性买入改为分段建仓。</li>
+    <li><b>第四层：拿住——幂律分布下换手是最大敌人。</b>剔除涨幅最高的 3 周收益减半；我们样本中 13/20 在 2024 年后才兑现。这要求：仓位设计必须让单票回撤可承受（恒立液压曾 5 年不涨），否则行为上必然拿不住。这也是组合化（而非个股重仓）的第二个理由。</li>
+    <li><b>第五层：卖出纪律——"长期逻辑证伪"而非"涨多了"。</b>安信：业绩 miss 是噪音、甚至提供加仓点（2012-2013 白酒）；真正的卖点是产业逻辑证伪（如 2011 后的传统周期）。估值高低在成长兑现路径上不是卖点——中际旭创 PE 183→53 的过程中，"太贵了"的声音从未停过。</li>
+  </ol>
+
+  <h3>3.4 回到你的原始问题：价值投资靠谱吗？</h3>
+  <p>靠谱，但它的角色要摆对：<b>价值因子解决"整体期望为正"（防守），产业成长解决"上限空间"（进攻）</b>。纯价值组合（双门限 Top50）十年年化 6.3%、夏普 0.36、回撤可控——它赚的是确定性的钱；十倍股体系（成长宽筛+追涨+持有）期望收益更高但路径极痛苦、个股命中率极低。一个务实的组合应该是：核心仓用双门限价值组合打底，卫星仓用"产业趋势+成长确认"规则做进攻，两者共用同一套风控。这正是 GARP 的现代版本，也是林奇麦哲伦基金 13 年 27 倍的真实做法——他同时持有 1400 只股票，靠组合而不是靠"选中一只十倍股"。</p>
+</div>
+
+<!-- ============ 附录 ============ -->
+<div class="card">
+  <h2>附录：数据口径与局限</h2>
+  <ul>
+    <li><b>行情</b>：本地 PostgreSQL daily_quote（tushare 口径，pct_chg 基于除权基准价，日收益连乘=全收益近似）；窗口 2016-09-12 至 2026-09-11；要求起点前已上市且交易日数 &gt;1900。</li>
+    <li><b>财务</b>：financial_indicator（2016 中报，起点可见无前视偏差）+ income（2015/2025 年报）；估值为 daily_basic 当日快照。</li>
+    <li><b>样本</b>：20 只十倍股是小样本，统计特征（中位数、命中率）有抽样误差；"首次 10 倍时点"含路径噪声；EPS 倍数由 PE 反推，含股本变动近似。</li>
+    <li><b>复现</b>：scripts/tenbagger_analysis.py，结果 outputs/tenbagger_analysis.json。</li>
+  </ul>
+  <div class="footer">免责声明：本报告基于公开市场数据与量化统计，仅供研究参考，不构成任何投资建议。市场有风险，投资须谨慎。任何投资决策应结合个人风险承受能力独立判断，必要时咨询持牌专业机构。过往表现不预示未来收益。</div>
+</div>
+
+</div>
+
+<script>
+function bar(id, cats, series, opts) {
+  var chart = echarts.init(document.getElementById(id));
+  var option = {
+    tooltip: { trigger: 'axis' },
+    legend: opts.legend ? { data: opts.legend } : undefined,
+    grid: { left: 50, right: 30, top: opts.legend ? 40 : 24, bottom: 46 },
+    xAxis: { type: 'category', data: cats, axisLabel: { interval: 0, rotate: opts.rotate || 0, fontSize: 11 } },
+    yAxis: opts.yAxis || { type: 'value' },
+    series: series
+  };
+  chart.setOption(option);
+}
+
+// 图1 行业分布
+bar('chartIndustry',
+  ['通信设备', '元器件', '半导体', '电气设备', '化工原料', '工程机械', '铜', '白酒', '农业综合'],
+  [{ name: '十倍股数量', type: 'bar', data: [4, 6, 2, 2, 2, 1, 1, 1, 1],
+     itemStyle: { color: function (p) { return p.dataIndex < 3 ? '#c0392b' : '#8fa8c5'; } },
+     label: { show: true, position: 'top' } }],
+  { rotate: 30 });
+
+// 图2 起点画像对比
+bar('chartProfile',
+  ['起点市值中位(亿)', '起点PE中位(倍)', '起点ROE中位(%)', '营收增速中位(%)'],
+  [
+    { name: '20只十倍股', type: 'bar', data: [82, 81, 12.1, 12.7], itemStyle: { color: '#c0392b' }, label: { show: true, position: 'top' } },
+    { name: '全市场', type: 'bar', data: [84, 63, 6.5, 6.3], itemStyle: { color: '#8fa8c5' }, label: { show: true, position: 'top' } }
+  ],
+  { legend: ['20只十倍股', '全市场'] });
+
+// 图3 归因
+bar('chartAttrib',
+  ['营收倍数(2015→2025)', '归母净利倍数', 'EPS倍数'],
+  [{ name: '中位倍数', type: 'bar', data: [10.4, 21.5, 25.2], itemStyle: { color: '#1f4e79' }, label: { show: true, position: 'top', formatter: '{c}x' } }],
+  {});
+
+// 图4 首次10倍时间
+bar('chartTime',
+  ['2020', '2021', '2022', '2023', '2024', '2025', '2026'],
+  [{ name: '当年首次达10倍数量', type: 'bar', data: [4, 2, 0, 1, 2, 7, 4],
+     itemStyle: { color: function (p) { return p.dataIndex >= 4 ? '#c0392b' : '#8fa8c5'; } },
+     label: { show: true, position: 'top' } }],
+  {});
+
+// 图5 规则测试
+bar('chartRules',
+  ['质量派\nROE>15%', '成长派\n增速>30%', '便宜派\nPE<20&PB<2', '小市值\n<80亿', '质量+合理价', '质+成+小市值', '质量+成长', '无规则'],
+  [
+    { name: '组合规模(只)', type: 'bar', data: [408, 580, 126, 1289, 168, 96, 101, 2715], itemStyle: { color: '#8fa8c5' } },
+    { name: '命中10x数量', type: 'bar', data: [4, 5, 0, 6, 2, 2, 2, 16], itemStyle: { color: '#c0392b' }, label: { show: true, position: 'top' } }
+  ],
+  { legend: ['组合规模(只)', '命中10x数量'], rotate: 18, yAxis: { type: 'value', name: '只' } });
+</script>
+</body>
+</html>

@@ -1,0 +1,163 @@
+{
+ "asof": "2016-09-12",
+ "end": "2026-09-11",
+ "universe": 2108,
+ "tenbaggers": 12,
+ "tenbagger_codes": [
+  "002028.SZ",
+  "002371.SZ",
+  "002384.SZ",
+  "002463.SZ",
+  "002648.SZ",
+  "002714.SZ",
+  "300390.SZ",
+  "600183.SH",
+  "600760.SH",
+  "600809.SH",
+  "601100.SH",
+  "601899.SH"
+ ],
+ "results": [
+  {
+   "grid": 1,
+   "params": {
+    "g_min": 15,
+    "r_min": 8,
+    "m_min": 25,
+    "mv_max": 500,
+    "use_ind": false,
+    "use_mom": false
+   },
+   "n": 80,
+   "layers": {
+    "L0 有完整数据": 1997,
+    "L1 市值<=500亿": 1918,
+    "L2 营收增速>=15% & ROE>=8% & 毛利>=25%": 80
+   },
+   "hit": 1,
+   "hit_total": 12,
+   "precision": 1.25,
+   "base_rate": 0.57,
+   "lift": 2.2,
+   "port_mult": 1.79,
+   "bench_mult": 1.38,
+   "other_mult": 1.68,
+   "hit_names": [
+    "牧原股份(10x)"
+   ]
+  },
+  {
+   "grid": 2,
+   "params": {
+    "g_min": 15,
+    "r_min": 8,
+    "m_min": 25,
+    "mv_max": 500,
+    "use_ind": true,
+    "use_mom": false
+   },
+   "n": 37,
+   "layers": {
+    "L0 有完整数据": 1997,
+    "L1 市值<=500亿": 1918,
+    "L2 营收增速>=15% & ROE>=8% & 毛利>=25%": 80,
+    "L3 行业景气前1/3": 37
+   },
+   "hit": 1,
+   "hit_total": 12,
+   "precision": 2.7,
+   "base_rate": 0.57,
+   "lift": 4.7,
+   "port_mult": 1.74,
+   "bench_mult": 1.38,
+   "other_mult": 1.5,
+   "hit_names": [
+    "牧原股份(10x)"
+   ]
+  },
+  {
+   "grid": 3,
+   "params": {
+    "g_min": 15,
+    "r_min": 8,
+    "m_min": 25,
+    "mv_max": 500,
+    "use_ind": true,
+    "use_mom": true
+   },
+   "n": 21,
+   "layers": {
+    "L0 有完整数据": 1997,
+    "L1 市值<=500亿": 1918,
+    "L2 营收增速>=15% & ROE>=8% & 毛利>=25%": 80,
+    "L3 行业景气前1/3": 37,
+    "L4 动量前50%": 21
+   },
+   "hit": 0,
+   "hit_total": 12,
+   "precision": 0.0,
+   "base_rate": 0.57,
+   "lift": 0.0,
+   "port_mult": 1.5,
+   "bench_mult": 1.38,
+   "other_mult": 1.5,
+   "hit_names": []
+  },
+  {
+   "grid": 4,
+   "params": {
+    "g_min": 20,
+    "r_min": 10,
+    "m_min": 25,
+    "mv_max": 500,
+    "use_ind": true,
+    "use_mom": true
+   },
+   "n": 12,
+   "layers": {
+    "L0 有完整数据": 1997,
+    "L1 市值<=500亿": 1918,
+    "L2 营收增速>=20% & ROE>=10% & 毛利>=25%": 38,
+    "L3 行业景气前1/3": 19,
+    "L4 动量前50%": 12
+   },
+   "hit": 0,
+   "hit_total": 12,
+   "precision": 0.0,
+   "base_rate": 0.57,
+   "lift": 0.0,
+   "port_mult": 1.55,
+   "bench_mult": 1.38,
+   "other_mult": 1.55,
+   "hit_names": []
+  },
+  {
+   "grid": 5,
+   "params": {
+    "g_min": 20,
+    "r_min": 10,
+    "m_min": 30,
+    "mv_max": 300,
+    "use_ind": true,
+    "use_mom": true
+   },
+   "n": 8,
+   "layers": {
+    "L0 有完整数据": 1997,
+    "L1 市值<=300亿": 1813,
+    "L2 营收增速>=20% & ROE>=10% & 毛利>=30%": 27,
+    "L3 行业景气前1/3": 14,
+    "L4 动量前50%": 8
+   },
+   "hit": 0,
+   "hit_total": 12,
+   "precision": 0.0,
+   "base_rate": 0.57,
+   "lift": 0.0,
+   "port_mult": 1.11,
+   "bench_mult": 1.38,
+   "other_mult": 1.11,
+   "hit_names": []
+  }
+ ]
+}
