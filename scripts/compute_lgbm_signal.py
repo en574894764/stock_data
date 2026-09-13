@@ -43,6 +43,13 @@ TRAIN_START = "2016-01-01"
 #   on_vol_20 vs ivol_60 相关 0.64; 噪声: tug_20/on_skew_20)。详见 reports/intraday_pool_test.md
 EXCLUDE_FACTORS = {"on_mom_20", "id_mom_20", "on_share_20", "id_on_amp_20",
                    "on_vol_20", "on_skew_20", "on_rev_5", "tug_20"}
+# 2026-09-14 QFA 单季 / SUE 多子因子: 组合层实证无增益 (新增 sue_q_np 多相位均值 +0.0pp;
+#   替换 sue_delta→sue_q_np 反而 -4.7pp 年化)，见 reports/qfa_sue_eval.md。
+#   单因子 IC 虽高于现有 sue_gr/sue_delta（+1.9~2.2% vs +0.85/+1.38%），但边际信息被现有因子吸收。
+#   仅 q_np_yoy 曾入库（脚本首次试跑遗留），登记排除以免自动进入 LGBM 生产特征；
+#   其余 8 个未落库（按需 `python3 scripts/compute_qfa_sue.py --start 2015-01-01` 写入）。
+#   若要做「新因子是否提升 LGBM」实验，须先复制本表去掉 q_np_yoy 再重训对比。
+EXCLUDE_FACTORS |= {"q_np_yoy"}
 
 PARAMS = dict(objective="regression", n_estimators=400, learning_rate=0.03,
               num_leaves=31, min_child_samples=300, feature_fraction=0.7,

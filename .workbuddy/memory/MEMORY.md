@@ -32,3 +32,33 @@
 - scripts/tenbagger_analysis.py + outputs/tenbagger_analysis.json；2016-09-12→2026-09-11 终值≥10x：20/2637（0.76%），电子硬件链 12/20
 - 共同点：起点不便宜（PE中位81 vs 市场63）、市值持平、ROE平庸（中际旭创1.9%/PE183）、盈利驱动（净利+21.5x）、13/20 在2024年后才兑现（幂律，剔最高3周收益减半）
 - 2016时点静态规则天花板~2%：便宜派0/20，质量+成长2/20（牧原+兆易）→ 十倍股核心=产业趋势拐点不可外推；方法论=趋势定位+成长宽筛+追涨确认（东吴：涨50%后概率22→70%，5x→10x 43%）+拿住+逻辑证伪才卖；价值=防守，GARP=交集
+
+## 价值投资落地工具（2026-09-14）
+- `scripts/stock_diligence.py`：排雷(6红旗+Beneish M-Score+Altman Z-Score)+选股(Piotroski F9)+估值(PE/PB分位 CUME_DIST)+买卖点；输出 `outputs/stock_diligence.csv`(全市场5015只评分)+`.json`+`_report.html`
+- **阈值本地化**：Altman Z<1.81 在A股命中53%、Beneish M>-2.22 命中24%（美股口径偏严，Z中位1.76/96.8%非安全区）→ 实际用相对分位；金融股(银行/保险/证券/多元金融)剔除出 M/Z
+- 口径：三表 `report_type` varchar，'4'=年报('1'Q1/'2'中报/'3'Q3)；缺 DEPI折旧(取1.0中性)/留存收益(用归母权益近似)/商誉字段
+- 工程：factor_cache `_val_pct.parquet` 等按 last_date 缓存估值分位（避免每次6min全表CUME_DIST）；node=`.../22.22.2-3/bin/node`
+
+## 风格归因（2026-09-14，`scripts/attribution.py` → `reports/attribution.md`）
+- **6因子组合 = smart-beta，不是 alpha**：92 期分解（算术累计）equal 市场 +84%/风格 +30%/特异 α **−14%（t=−0.90 不显著）**；min_var_cap10 市场 +78%/风格 +30%/α **−9%（t=−0.51）** —— 剔除风格无可识别选股力
+- **方法必守**：风格因子收益须在**全池**截面 OLS 估计（只用 Top30 会因选股内生性污染 f_k）；加市场截距项；暴露用 **rank-normal** 而非原始 z（原始 z 报出"价值暴露 +4.23σ"不可解释，换口径后 α 由正转负=**估计口径即结论**）
+- 全池因子 IC：turnover_20 +7.2% / ivol_60 +6.9% / ret_20d_rev +6.6% / ln_mv +5.1% / ep_ttm +3.2% / sue_gr +0.2% / **roe_lf −1.3%（负向）**
+- **五分层前向收益（年化）**：size Q1+11.2→Q5**+25.2**（单调，价差14.1）、reversal +2.1→**+21.8**（单调，价差19.7）但组合暴露≈0（−0.10σ/+0.35σ）；**ep_ttm Q4+18.0>Q5+14.1（陷阱）却是最大暴露 +1.99σ**；roe_lf 完全递减（Q1+16.2→Q5+11.8）；lowvol/liquidity 的 Q3-Q4 见顶（减仓高波动就够，再压榨无增益）
+- **min_var_cap10 真实作用 = 更极端的有效因子暴露**（低波0.90→1.40σ、换手0.66→1.00σ、小市值−0.10→−0.32σ、成长0.79→0.57σ），非更优权重；代价 **银行行业权重 17.9%→27.8%（+9.9pp）**
+- **⚠ 反向结论**：给 `score_cross` 加 winsorize/rank-normal 的建议**已被实验否决**（`scripts/winsorize_test.py`）：多相位均值 raw_z **15.9%** vs rank_normal **13.0%（−3.0pp）**，主相位 18.7%/1.11 vs 12.0%/0.77 → **原始 z 的尾部加权贡献真实收益**。但 raw_z 相位离散 8.8pp（最差10.1%）vs rank_normal 2.9pp（最差11.6%）= 高均值/高方差，本样本内**未裁决，不动生产**
+- **未否决且风险明确的一条**：组合层加行业 ≤15% + 风格暴露 ±1σ 约束
+
+## QFA 单季 + SUE 多子因子（2026-09-14，`scripts/compute_qfa_sue.py` / `qfa_sue_eval.py`）
+- 9 因子：q_np_yoy/q_or_yoy/q_op_yoy/q_roe_d/q_acc_np/sue_q_np/sue_q_or/sue_q_op/sue_q_np_d
+- **单季口径确实更锐利**（验证华泰）：sue_q_np_d IC **+2.19%/ICIR 0.40/正率65%**；sue_q_op +1.94%；sue_q_np +1.88% —— 均 > 现有 sue_gr +0.85% / sue_delta +1.38%；q_acc_np 与成长因子相关仅 **0.03/0.05**（真新信息）
+- **但组合层零增益**：新增 sue_q_np 多相位均值 **+0.0pp**；**替换 sue_delta→sue_q_np 崩 4.7pp**（18.7%→13.7%）
+- **机制**：非 sue_delta 有独特信息，而是 **sue_q_np 尾部更厚 → 在未 winsorize 的合成分数里挤占其他因子名义权重**（证据：换 rank-normal 后劣化从 −4.7pp 收窄到 −1.6pp）
+- **一律不入库**（LGBM 自动发现会污染生产）；首跑遗留 q_np_yoy 已登记 `EXCLUDE_FACTORS`
+- 单季还原：`income.report_type` ∈{'1','2','3','4'}=报告期，金额字段**年内累计**；q1=cum1、qk=cum_k−cum_{k−1}（季度连续）；同 (code,year,type) **取最早公告**；SUE 基准=**季节性随机游走**（去年同季）+ 相对惊喜 s=(q_t−q_{t−4})/|q_{t−4}| 按自身 8 季标准化；截断 yoy±5/SUE±15
+- 裁决文档 `reports/qfa_sue_conclusion.md`
+
+## 方法论（2026-09-14 新增）
+- **归因/回测给出的"改进建议"必须单独做同口径对照实验**——本次建议 #1（winsorize）就被自己的对照实验否决，说明"看起来该改"≠"改了更好"
+- 单因子 IC 高 **不能**预测组合贡献（合成分数未 winsorize 时，因子有效权重由尾部厚度决定，≠名义权重）
+- 评估阶段**不要先落库**：9 因子 × 11.8M 行 = 106M 行 upsert 单因子 >6min；在内存构造宽表即可，只写胜出者
+- 千万行 upsert 性能：`to_csv` **不要传 `float_format`**（会掉出 C 快速路径，11.8M 行多花 5 倍时间）；`pit_wide` 用 numpy 预分配再切片赋值（逐列 DataFrame 赋值慢 10 倍）
