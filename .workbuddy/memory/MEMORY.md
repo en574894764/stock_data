@@ -48,6 +48,14 @@
 - **⚠ 反向结论**：给 `score_cross` 加 winsorize/rank-normal 的建议**已被实验否决**（`scripts/winsorize_test.py`）：多相位均值 raw_z **15.9%** vs rank_normal **13.0%（−3.0pp）**，主相位 18.7%/1.11 vs 12.0%/0.77 → **原始 z 的尾部加权贡献真实收益**。但 raw_z 相位离散 8.8pp（最差10.1%）vs rank_normal 2.9pp（最差11.6%）= 高均值/高方差，本样本内**未裁决，不动生产**
 - **未否决且风险明确的一条**：组合层加行业 ≤15% + 风格暴露 ±1σ 约束
 
+## 相位稳健性（2026-09-14，`scripts/phase_robustness.py` → `reports/phase_robustness.md`）
+- **判据**：`fws.offset_grid` 的 offset 取 **0..19（一个完整月度周期）**，不是 2/5/10/15 四个。**4 相位会严重失真离散度估计**（4 相位报 rank 2.9pp vs raw 8.8pp；20 相位实为 2.2pp vs 3.4pp）
+- **裁决：不拉齐尺度**。20 相位均值 raw **14.7%** / 夏普 0.86 / 最差 9.8% ＞ rank 12.3% / 0.81 / 8.2% ＞ winsor(±3σ) 11.3% / 0.65 / 6.3%；胜率 raw 18/20（vs winsor）、15/20（vs rank）
+  → **原始 z 的尾部加权是 feature 不是 bug**；`winsor` 粗暴裁尾全面最差；rank 唯一优势=回撤(−19.3% vs −22.7%)与 OOS 夏普(1.06 vs 0.98)
+- **回测口径修正**：主相位 18.7% 偏高，**20 相位期望 14.7%、最差 9.8%** → 汇报与实盘预期锚 **14~15%**，回撤预算 −25% 量级
+- **🔍 待验证的更重要发现**：调仓日「日历位置」有强结构，三口径同向 —— raw 月初(off 0-7) 18.0% / 月中(8-14) 10.9% / 月末(15-19) 14.5%，**月初−月中 +7.1pp**（组内 std 仅 1.6/0.8pp）。疑似 A 股月初效应，须按 in-month 日序重验
+- **不拉齐 → 因子研究仍被尺度污染 → 改判据不改生产**：任何因子增删/替换**必须同时跑 raw 与 rank 两口径，只有两边同向才采信**（sue_q_np 即 raw 变差而 rank 改善的反例）
+
 ## QFA 单季 + SUE 多子因子（2026-09-14，`scripts/compute_qfa_sue.py` / `qfa_sue_eval.py`）
 - 9 因子：q_np_yoy/q_or_yoy/q_op_yoy/q_roe_d/q_acc_np/sue_q_np/sue_q_or/sue_q_op/sue_q_np_d
 - **单季口径确实更锐利**（验证华泰）：sue_q_np_d IC **+2.19%/ICIR 0.40/正率65%**；sue_q_op +1.94%；sue_q_np +1.88% —— 均 > 现有 sue_gr +0.85% / sue_delta +1.38%；q_acc_np 与成长因子相关仅 **0.03/0.05**（真新信息）
