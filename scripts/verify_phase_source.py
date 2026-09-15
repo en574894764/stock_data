@@ -29,7 +29,7 @@ COST = 0.0015
 TOP_N = 30
 
 
-def backtest_light(sec, grid, daily_ret, rebal):
+def backtest_light(sec, grid, daily_ret, rebal, cost=COST):
     """与 fws.backtest 同口径，但跳过 IC/Ridge（等权合成用不到），快约 4 倍。"""
     dr_idx, dr_cols = daily_ret.index, daily_ret.columns
     rets, turns, prev_w = [], [], {}
@@ -58,7 +58,7 @@ def backtest_light(sec, grid, daily_ret, rebal):
         m = daily_ret.iloc[dr_idx.get_indexer(pos_dates),
                            dr_cols.get_indexer(stocks)].to_numpy(float)
         dr = np.where(np.isfinite(m @ w), m @ w, 0.0)
-        dr[0] -= to * 2 * COST
+        dr[0] -= to * 2 * cost
         for d, r in zip(pos_dates, dr):
             rets.append((d, float(r)))
         prev_w = pmap
@@ -71,8 +71,11 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("anchor", nargs="?", default="2019-01-01")
     ap.add_argument("--n-phase", type=int, default=20)
+    ap.add_argument("--rebal", type=int, default=20, help="调仓间隔(交易日)")
+    ap.add_argument("--cost", type=float, default=0.0015, help="单边成本(0=零成本归因)")
     args = ap.parse_args()
     anchor = args.anchor
+    fe.REBAL = args.rebal   # monkey-patch: 影响 rebalance_dates/build_grid/offset_grid/持有期切片
 
     end = pd.Timestamp.today().strftime("%Y-%m-%d")
     conn = fe.get_conn()
@@ -87,14 +90,14 @@ def main():
     for off in range(args.n_phase):
         g = fws.offset_grid(idx, anchor, off, end)
         rb = [t for t in g if t >= pd.Timestamp(anchor)]
-        nav, _ = backtest_light(sec, g, daily_ret, rb)
+        nav, _ = backtest_light(sec, g, daily_ret, rb, cost=args.cost)
         a = fws.stats(nav)["ann"]
         anns.append(a)
-        print(f"anchor={anchor} off={off:2d} 年化 {a*100:5.1f}%", flush=True)
+        print(f"REBAL={args.rebal} anchor={anchor} off={off:2d} 年化 {a*100:5.1f}%", flush=True)
 
     arr = np.array(anns)
-    print(f"\nanchor={anchor} | 均值 {arr.mean()*100:.1f}% | 离散 {arr.std()*100:.1f}pp | "
-          f"最差 {arr.min()*100:.1f}% | 最好 {arr.max()*100:.1f}% | "
+    print(f"\nREBAL={args.rebal} anchor={anchor} | 均值 {arr.mean()*100:.1f}% | "
+          f"离散 {arr.std()*100:.1f}pp | 最差 {arr.min()*100:.1f}% | 最好 {arr.max()*100:.1f}% | "
           f"范围 {arr.max()*100-arr.min()*100:.1f}pp")
 
 
