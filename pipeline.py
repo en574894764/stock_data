@@ -154,18 +154,24 @@ def step_factor(cron: bool = False) -> bool:
 
 
 def step_signals(cron: bool = False) -> bool:
-    """策略链 (非阻塞): ① 到调仓期生成信号+飞书 ② 到期 pending 模拟成交→position ③ 每日复盘+飞书。"""
+    """策略链 (非阻塞): ① 个股+ETF 信号生成+飞书 ② 到期 pending 模拟成交→position ③ 净值重建+组合再平衡 ④ 复盘+飞书。"""
     log("策略链 (generate + execute + review)...")
     r = run([PY, str(REPO / "scripts" / "generate_signals.py"), "--push"], timeout=600, cron=cron)
     ok = r.returncode == 0
     if not ok:
-        log(f"信号生成失败 (exit={r.returncode}): {r.stderr[-300:]}", "WARN", cron)
+        log(f"个股信号生成失败 (exit={r.returncode}): {r.stderr[-300:]}", "WARN", cron)
+    r_etf = run([PY, str(REPO / "scripts" / "generate_etf_signals.py"), "--push"], timeout=600, cron=cron)
+    if r_etf.returncode != 0:
+        log(f"ETF 信号生成失败 (exit={r_etf.returncode}): {r_etf.stderr[-300:]}", "WARN", cron)
     r2 = run([PY, str(REPO / "scripts" / "execute_signals.py"), "--simulate"], timeout=600, cron=cron)
     if r2.returncode != 0:
         log(f"信号执行失败 (exit={r2.returncode}): {r2.stderr[-300:]}", "WARN", cron)
     r2b = run([PY, str(REPO / "scripts" / "build_nav.py")], timeout=600, cron=cron)
     if r2b.returncode != 0:
         log(f"净值重建失败 (exit={r2b.returncode}): {r2b.stderr[-300:]}", "WARN", cron)
+    r2d = run([PY, str(REPO / "scripts" / "combo_allocator.py"), "--push"], timeout=600, cron=cron)
+    if r2d.returncode != 0:
+        log(f"组合再平衡监控失败 (exit={r2d.returncode}): {r2d.stderr[-300:]}", "WARN", cron)
     r2c = run([PY, str(REPO / "scripts" / "benchmark_track.py"), "--push"], timeout=600, cron=cron)
     if r2c.returncode != 0:
         log(f"基准对照失败 (exit={r2c.returncode}): {r2c.stderr[-300:]}", "WARN", cron)

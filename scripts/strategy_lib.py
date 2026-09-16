@@ -143,6 +143,86 @@ def renormalize_with_cap(w: pd.Series, cap: float = 0.10) -> pd.Series:
     return w / w.sum()
 
 
+def load_industry_map(conn) -> dict:
+    """ts_code → 申万行业 (stocks.industry), 空/NaN → '其他'。仅 A 股。"""
+    cur = conn.cursor()
+    cur.execute("SELECT ts_code, industry FROM stocks WHERE ts_code NOT LIKE '%.HK'")
+    out = {}
+    for ts_code, ind in cur.fetchall():
+        ind = (str(ind).strip() if ind is not None else "")
+        out[ts_code] = ind if ind and ind.lower() != "nan" else "其他"
+    cur.close()
+    return out
+
+
+def apply_industry_cap(w: pd.Series, industry_map: dict, cap: float = 0.15,
+                       single_cap: float | None = None) -> pd.Series:
+    """联合约束投影: 单一行业权重之和 ≤ cap, 同时单票 ≤ single_cap (若给)。
+    交替投影 (对凸的 cap 约束收敛): 反复 [单票 water-filling → 行业 water-filling]。
+    注意: 顺序施加 [先行业后单票] 会互相破坏 (单票 cap 的多余权重回流行业),
+    所以这里必须联合投影。single_cap 默认 None = 不额外约束单票。"""
+    import numpy as np
+    w = w.astype(float).copy()
+    if w.sum() <= 0:
+        return w
+    ind = pd.Series([industry_map.get(c, "其他") for c in w.index], index=w.index)
+
+    def cap_elements(s, cap_):
+        """元素级 water-filling: 超 cap_ 的元素压到 cap_, 多余按比例分给未超元素。"""
+        s = s.astype(float).copy()
+        for _ in range(50):
+            over = s > cap_ + 1e-12
+            if not over.any():
+                break
+            excess = float((s[over] - cap_).sum())
+            s[over] = cap_
+            free = ~over
+            fs = float(s[free].sum())
+            if fs <= 0:
+                break
+            s[free] += excess * s[free] / fs
+        return s
+
+    def cap_industries(s):
+        """行业级 water-filling: 超 cap 行业按比例缩到 cap, 多余分给未超行业。"""
+        s = s.astype(float).copy()
+        for _ in range(50):
+            ind_w = s.groupby(ind).sum()
+            over = ind_w[ind_w > cap + 1e-12]
+            if over.empty:
+                break
+            excess_total = 0.0
+            for ind_name in over.index:
+                mask = ind == ind_name
+                tot = float(s[mask].sum())
+                if tot <= 0:
+                    continue
+                excess_total += tot - cap
+                s[mask] = s[mask] * (cap / tot)
+            ind_w = s.groupby(ind).sum()
+            free = ind_w[ind_w <= cap + 1e-12]
+            free_total = float(free.sum())
+            if free_total <= 0:
+                break
+            free_mask = ind.isin(free.index)
+            s[free_mask] = s[free_mask] * (1.0 + excess_total / free_total)
+        return s
+
+    for _ in range(200):
+        prev = w.copy()
+        if single_cap is not None:
+            w = cap_elements(w, single_cap)
+        w = cap_industries(w)
+        ok_single = (single_cap is None) or bool((w <= single_cap + 1e-9).all())
+        ok_ind = bool((w.groupby(ind).sum() <= cap + 1e-9).all())
+        if ok_single and ok_ind:
+            break
+        if float(np.abs(w - prev).max()) < 1e-12:
+            break
+    s = float(w.sum())
+    return w / s if s > 0 else w
+
+
 def optimize_weights(hist: pd.DataFrame, scheme: str, cap: float = 0.10) -> pd.Series:
     """风险端加权 (在排序选出的持仓内), 前提=排序可靠/幅度不可靠 → 不做 MVO 收益项。
     hist: (dates × stocks) 历史日收益; scheme: equal/inv_vol/min_var/risk_parity。

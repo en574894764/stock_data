@@ -224,7 +224,8 @@ def stats(nav: pd.Series) -> dict:
     return {"ann": ann, "sharpe": ann / vol if vol > 0 else np.nan, "dd": dd}
 
 
-def backtest(sec: Section, wfunc, grid, daily_ret, rebal):
+def backtest(sec: Section, wfunc, grid, daily_ret, rebal,
+             industry_cap=None, industry_map=None):
     dr_idx, dr_cols = daily_ret.index, daily_ret.columns
     ics, ridges = sec.ic(grid), sec.ridge(grid)
     rets, turns, w_hist, prev_w = [], [], [], {}
@@ -251,6 +252,12 @@ def backtest(sec: Section, wfunc, grid, daily_ret, rebal):
             continue
         w = compute_weights(hist, "min_var_cap10")
         stocks = hist.columns.tolist()
+        if industry_cap and industry_map:
+            # 行业约束 (与生产 generate_signals 同口径, 联合投影单票≤10%+行业≤cap)
+            wser2 = pd.Series(w, index=stocks)
+            wser2 = sl.apply_industry_cap(wser2, industry_map, industry_cap, single_cap=0.10)
+            w = wser2.to_numpy(float)
+            stocks = wser2.index.tolist()
         pmap = dict(zip(stocks, w))
         to = 0.5 * sum(abs(pmap.get(c, 0) - prev_w.get(c, 0))
                        for c in set(pmap) | set(prev_w))

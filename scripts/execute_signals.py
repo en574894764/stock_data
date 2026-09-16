@@ -25,6 +25,7 @@ sys.path.insert(0, os.path.join(REPO, "scripts"))
 sys.path.insert(0, REPO)
 
 import factor_eval as fe
+import broker  # noqa: E402  (行情路由: daily_quote / etf_quote 分流)
 
 VIRTUAL_CASH = 1_000_000
 EXPIRE_DAYS = 5  # exec_date 后 N 个交易日仍无行情 → expired
@@ -46,16 +47,8 @@ def list_pending(conn, strategy_id=None):
 
 
 def get_open_prices(conn, ts_codes: list, d) -> dict:
-    """d 日开盘价 (daily_quote; 停牌/未出行情的不在返回里)."""
-    if not ts_codes:
-        return {}
-    cur = conn.cursor()
-    ph = ",".join(["%s"] * len(ts_codes))
-    cur.execute(f"SELECT ts_code, open FROM daily_quote WHERE trade_date = %s AND ts_code IN ({ph})",
-                (d, *ts_codes))
-    out = {r[0]: float(r[1]) for r in cur.fetchall() if r[1] and float(r[1]) > 0}
-    cur.close()
-    return out
+    """d 日开盘价 (daily_quote/etf_quote 分流; 停牌/未出行情的不在返回里)."""
+    return broker.get_open_prices(conn, ts_codes, d)
 
 
 def trading_days_since(conn, d) -> int:

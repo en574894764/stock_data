@@ -31,3 +31,6 @@ logs/
 # The reports
 reports/
 factor_cache/
+
+# 价值投资模块（每日重写产物不入 git，代码与 config 照常跟踪）
+value_investing/outputs/

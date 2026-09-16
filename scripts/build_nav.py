@@ -25,6 +25,7 @@ sys.path.insert(0, os.path.join(REPO, "scripts"))
 sys.path.insert(0, REPO)
 
 import factor_eval as fe
+import broker  # noqa: E402  (行情路由: daily_quote / etf_quote 分流)
 
 COST_DEFAULT = 0.0015
 
@@ -50,23 +51,8 @@ def load_config_cost(conn, strategy_id):
 
 
 def load_quotes(conn, ts_codes, start):
-    """日线 (open/close/pre_close/pct_chg) 宽表."""
-    cur = conn.cursor()
-    ph = ",".join(["%s"] * len(ts_codes))
-    cur.execute(f"SELECT trade_date, ts_code, open, close, pre_close, pct_chg FROM daily_quote "
-                f"WHERE ts_code IN ({ph}) AND trade_date >= %s", (*ts_codes, start))
-    df = pd.DataFrame(cur.fetchall(), columns=["trade_date", "ts_code", "open", "close", "pre_close", "pct_chg"])
-    cur.close()
-    if df.empty:
-        return {}
-    for col in ("open", "close", "pre_close", "pct_chg"):
-        df[col] = pd.to_numeric(df[col], errors="coerce")
-    out = {}
-    for col in ("open", "close", "pre_close", "pct_chg"):
-        w = df.pivot(index="trade_date", columns="ts_code", values=col).sort_index()
-        w.index = pd.to_datetime(w.index)
-        out[col] = w
-    return out
+    """日线 (open/close/pre_close/pct_chg) 宽表 (daily_quote/etf_quote 分流)."""
+    return broker.get_quotes_wide(conn, ts_codes, start)
 
 
 def build_nav(conn, strategy_id) -> pd.DataFrame:

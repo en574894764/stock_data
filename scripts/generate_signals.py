@@ -16,10 +16,14 @@ import argparse
 import json
 import os
 import sys
+import warnings
 from datetime import date
 
 import numpy as np
 import pandas as pd
+
+# factor_eval 等模块用 DBAPI2 连接调 pd.read_sql, 新版 pandas 打 SQLAlchemy 警告, 静默
+warnings.filterwarnings("ignore", message=".*SQLAlchemy.*")
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "scripts"))
@@ -159,6 +163,14 @@ def generate(cur, strategy: dict, force=False, dry_run=False) -> dict:
                 weights = pd.Series(1.0 / len(target), index=target.index)
         else:
             weights = pd.Series(1.0 / len(target), index=target.index)
+        target = target.reindex(weights.index)
+    # 行业约束 (风控): 单一行业权重 ≤ cap, 解决 min_var 下银行等集中风险 (2026-09-16 补)
+    # 联合投影: 行业 cap 与单票 cap 一起做 (顺序施加会互相破坏)
+    ind_cap = cfg.get("industry_cap")
+    if ind_cap and len(weights) > 1:
+        ind_map = sl.load_industry_map(cur.connection)
+        single_cap = cfg.get("weight_cap", 0.10) if weighting != "equal" else None
+        weights = sl.apply_industry_cap(weights, ind_map, ind_cap, single_cap)
         target = target.reindex(weights.index)
     target_w = float(weights.mean())
 
