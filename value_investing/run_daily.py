@@ -62,7 +62,7 @@ def main(argv=None) -> int:
 
     summary = s3.tier_summary(df)
     print(f"   交易日 {meta['trade_date']} | 扫描 {len(df)} 只 | CSV → {csv_path}")
-    print(summary[["档位", "数量", "占比", "平均折价", "上升趋势占比"]].to_string(index=False))
+    print(summary[["档位", "数量", "占比", "平均偏离", "上升趋势占比"]].to_string(index=False))
 
     print("\n▶ ④ 生成 HTML 日报")
     html_path = rr.render(df, meta, cfg)

@@ -125,8 +125,29 @@ def fetch_screen_universe(cfg: dict, base_year: int, conn=None) -> pd.DataFrame:
         "SELECT ts_code, symbol, name, industry, market, list_status, list_date FROM stocks",
         conn=conn,
     )
-    df = fi.merge(stocks, on="ts_code", how="left")
+    # 归母净利（用于扣非占比），按 (ts_code, report_year) 对齐到所选年报
+    inc = query(
+        "SELECT ts_code, report_year, n_income_attr_p, n_income FROM income "
+        "WHERE report_type = %s AND report_year BETWEEN %s AND %s",
+        (ANNUAL, lo, base_year), conn=conn)
+
+    df = fi.merge(stocks, on="ts_code", how="left").merge(inc, on=["ts_code", "report_year"], how="left")
+    df["扣非占比"] = df["profit_dedt"] / df["n_income_attr_p"]
     return df
+
+
+def fetch_roe_history(base_year: int, years: int, conn=None) -> pd.DataFrame:
+    """拉最近 years 年的年报 ROE 宽表（列 roe_YYYY），用于「连续 N 年 ROE」校验"""
+    lo = base_year - years + 1
+    sql = """
+        SELECT ts_code, report_year, roe
+        FROM financial_indicator
+        WHERE report_type = %s AND report_year BETWEEN %s AND %s
+    """
+    d = query(sql, (ANNUAL, lo, base_year), conn=conn)
+    w = d.pivot_table(index="ts_code", columns="report_year", values="roe")
+    w.columns = [f"roe_{c}" for c in w.columns]
+    return w.reset_index()
 
 
 def apply_screen(df: pd.DataFrame, cfg: dict, base_year: int) -> pd.DataFrame:
@@ -149,6 +170,12 @@ def apply_screen(df: pd.DataFrame, cfg: dict, base_year: int) -> pd.DataFrame:
         (out[roe_col] >= float(c["roe_min"]))
         & (out["debt_to_assets"] <= float(c["debt_to_assets_max"]))
     ]
+    # 可选：净利同比下限（默认关）
+    if c.get("netprofit_yoy_min") is not None and "netprofit_yoy" in out.columns:
+        out = out[out["netprofit_yoy"] >= float(c["netprofit_yoy_min"])]
+    # 可选：扣非占比下限（默认关）——堵一次性收益堆 ROE 的地雷
+    if c.get("deduct_profit_ratio_min") is not None and "扣非占比" in out.columns:
+        out = out[out["扣非占比"] >= float(c["deduct_profit_ratio_min"])]
     return out.sort_values([roe_col, "debt_to_assets"], ascending=[False, True]).reset_index(drop=True)
 
 
@@ -303,6 +330,17 @@ def classify_tier(mv_ratio: float, cfg: dict) -> tuple[str, str]:
 
 TIER_ORDER = ["非常低估", "低估", "一般低估", "高估", "无法估值"]
 
+# 趋势排序权重：上升在前，下降在后（越小越靠前）
+TREND_RANK = {"上升趋势(强)": 0, "上升趋势": 1, "震荡": 2, "下降趋势": 3, "下降趋势(强)": 4}
+
+
+def sort_by_trend_then_discount(df: pd.DataFrame) -> pd.DataFrame:
+    """先按「是否上升趋势」排（上升在前），再按折价率升序（更低估在前）。"""
+    d = df.copy()
+    d["_tr"] = d["趋势"].map(lambda t: TREND_RANK.get(t, 5))
+    return d.sort_values(["_tr", "折价率_三年后"], na_position="last").drop(columns=["_tr"])
+
+
 
 def upside(mv_ratio):
     """由 mv_ratio 反推上行空间 = 合理估值/市值 - 1"""
@@ -312,7 +350,7 @@ def upside(mv_ratio):
 
 
 def tier_summary(df: pd.DataFrame) -> pd.DataFrame:
-    """按档位汇总：数量 / 占比 / 平均折价 / 上行空间中位 / 上升趋势占比"""
+    """按档位汇总：数量 / 占比 / 平均偏离 / 上行空间中位 / 上升趋势占比"""
     rows = []
     for t in TIER_ORDER:
         sub = df[df["档位"] == t]
@@ -320,7 +358,7 @@ def tier_summary(df: pd.DataFrame) -> pd.DataFrame:
             档位=t,
             数量=len(sub),
             占比=len(sub) / len(df) if len(df) else np.nan,
-            平均折价=sub["折价率_三年后"].mean() if len(sub) else np.nan,
+            平均偏离=sub["折价率_三年后"].mean() if len(sub) else np.nan,
             上行空间中位=sub["市值比_三年后"].apply(upside).median() if len(sub) else np.nan,
             上升趋势占比=(sub["趋势"].str.contains("上升").mean() if len(sub) else np.nan),
         ))

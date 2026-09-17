@@ -65,10 +65,12 @@ def build_card_text(df, meta, summary) -> str:
                  f"上升趋势 {vl.fmt_pct(r['上升趋势占比'],0)}）")
         top_n = show_top.get(t, 0)
         if top_n:
-            sub = df[df["档位"] == t].nsmallest(top_n, "市值比_三年后")
+            sub = vl.sort_by_trend_then_discount(df[df["档位"] == t]).head(top_n)
             for _, s in sub.iterrows():
                 L.append(f"　· {s['名称']}（{s['代码']}）"
-                         f" 折价 {vl.fmt_pct(s['折价率_三年后'])} · {s['趋势']}")
+                         f" 偏离 {vl.fmt_pct(s['折价率_三年后'])}"
+                         f" · 负债率 {vl.fmt_num(s['资产负债率'],0)}%"
+                         f" · {s['趋势']}")
         L.append("")
 
     html = vl.REPORT_DIR / f"value_report_{td:%Y%m%d}.html"

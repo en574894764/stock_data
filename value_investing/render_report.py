@@ -72,7 +72,7 @@ def build_html(df: pd.DataFrame, meta: dict, cfg: dict) -> str:
           <div class="c-label" style="color:{color}">{html.escape(t)}</div>
           <div class="c-num">{int(row['数量'])}<span class="c-unit">只</span></div>
           <div class="c-sub">占比 {vl.fmt_pct(row['占比'],1)} · 上升趋势 {vl.fmt_pct(up,0)}</div>
-          <div class="c-sub">平均折价 {vl.fmt_pct(row['平均折价'],1)}</div>
+          <div class="c-sub">平均偏离 {vl.fmt_pct(row['平均偏离'],1)}</div>
         </div>"""
 
     cards = "".join(card(r) for _, r in summary.iterrows()
@@ -90,17 +90,20 @@ def build_html(df: pd.DataFrame, meta: dict, cfg: dict) -> str:
                     f'{html.escape(r["档位"])} {int(r["数量"])}</div>')
     dist_bar = f'<div class="distbar">{"".join(segs)}</div>'
 
-    # 焦点：折价大 + 趋势向上
-    focus = df[(df["趋势"].str.contains("上升", na=False)) & (df["市值比_三年后"] <= 0.7)] \
-        .sort_values("市值比_三年后").head(12)
+    # 焦点：折价大 + 趋势向上（先上升趋势，再按折价率从大到小）
+    focus = df[(df["趋势"].str.contains("上升", na=False)) & (df["市值比_三年后"] <= 0.7)]
+    focus = vl.sort_by_trend_then_discount(focus).head(12)
     if focus.empty:
-        focus_html = '<p class="muted">本期没有「折价 > 30% 且趋势向上」的标的。</p>'
+        focus_html = '<p class="muted">本期没有「较三年后合理估值折价 ≥ 30% 且趋势向上」的标的。</p>'
     else:
         rows = "".join(f"""<tr>
           <td class="mono">{html.escape(str(r['代码']))}</td>
           <td class="nm">{html.escape(str(r['名称']))}</td>
           <td class="muted">{html.escape(str(r['行业']))}</td>
           <td>{_num(r['当前市值'],1)}</td>
+          <td>{_num(r['归母净利润'],1)}</td>
+          <td>{_num(r['三年后净利润'],1)}</td>
+          <td>{_num(r['资产负债率'],1,'%')}</td>
           <td>{_num(r['三年后合理估值'],1)}</td>
           <td>{_pct(r['折价率_三年后'])}</td>
           <td>{_pct(r['上行空间'])}</td>
@@ -109,14 +112,15 @@ def build_html(df: pd.DataFrame, meta: dict, cfg: dict) -> str:
         </tr>""" for _, r in focus.iterrows())
         focus_html = f"""<table class="tbl">
           <thead><tr><th>代码</th><th>名称</th><th>行业</th><th>市值(亿)</th>
-          <th>三年后合理估值(亿)</th><th>折价率</th><th>上行空间</th><th>趋势</th><th>60日走势</th></tr></thead>
+          <th>当前净利(亿)</th><th>三年后净利(亿)</th><th>负债率</th><th>三年后合理估值(亿)</th>
+          <th>折价率</th><th>上行空间</th><th>趋势</th><th>60日走势</th></tr></thead>
           <tbody>{rows}</tbody></table>"""
 
     # 分档明细
     sections = []
     for tcfg in mon["tiers"]:
         label = tcfg["label"]
-        sub = df[df["档位"] == label]
+        sub = vl.sort_by_trend_then_discount(df[df["档位"] == label])
         color = tcfg.get("color", MUTED)
         if sub.empty:
             sections.append(f'<section><h3 style="border-left:4px solid {color}">'
@@ -133,6 +137,8 @@ def build_html(df: pd.DataFrame, meta: dict, cfg: dict) -> str:
               <td class="muted ind">{html.escape(str(r['行业']))}</td>
               <td>{_num(r['close'],2)}</td>
               <td>{_num(r['当前市值'],1)}</td>
+              <td>{_num(r['归母净利润'],1)}</td>
+              <td>{_num(r['三年后净利润'],1)}</td>
               <td>{_num(r['去年年报合理估值'],1)}</td>
               <td>{_num(r['三年后合理估值'],1)}</td>
               <td>{_num(r['市值比_三年后'],2)}</td>
@@ -150,11 +156,12 @@ def build_html(df: pd.DataFrame, meta: dict, cfg: dict) -> str:
         sections.append(f"""
         <section>
           <h3 style="border-left:4px solid {color}">{html.escape(label)}
-            <span class="muted">· {len(sub)} 只 · 平均折价 {vl.fmt_pct(sub['折价率_三年后'].mean(),1)}</span></h3>
+            <span class="muted">· {len(sub)} 只 · 平均偏离 {vl.fmt_pct(sub['折价率_三年后'].mean(),1)}</span></h3>
           <div class="scroll">
           <table class="tbl">
             <thead><tr>
               <th>代码</th><th>名称</th><th>行业</th><th>现价</th><th>市值(亿)</th>
+              <th>当前净利(亿)</th><th>三年后净利(亿)</th>
               <th>去年年报合理估值(亿)</th><th>三年后合理估值(亿)</th><th>市值/三年后估值</th>
               <th>折价率(三年后)</th><th>ROE</th><th>负债率</th><th>年化增速</th>
               <th>趋势</th><th>近5日</th><th>近20日</th><th>近60日</th><th>60日走势</th>
@@ -230,7 +237,7 @@ def build_html(df: pd.DataFrame, meta: dict, cfg: dict) -> str:
 {dist_bar}
 
 <section>
-  <h3>焦点 · 折价 &gt; 30% 且趋势向上</h3>
+  <h3>焦点 · 较三年后合理估值折价 ≥ 30% 且趋势向上</h3>
   {focus_html}
 </section>
 
@@ -243,6 +250,7 @@ def build_html(df: pd.DataFrame, meta: dict, cfg: dict) -> str:
   · 合理估值 = 归母净利润 × {val['pe_multiple']} 倍 PE。去年年报口径用 FY{base_year} 利润；三年后口径用 FY{base_year-4}~FY{base_year} 的利润序列拟合年化增速外推 {val['projection_years']} 年。<br>
   · 增速拟合优先 {val['growth']['prefer_points']} 个年报点（CAGR），不足退到 {val['growth']['fallback_points']} 个点，仍不足用默认 {val['growth']['default_rate']:.0%}；最后做 [{val['growth']['min_rate']:.0%}, {val['growth']['max_rate']:.0%}] 上下限保护。<br>
   · 分档：<code>mv_ratio = 当前总市值 / 三年后合理估值</code>；mv_ratio ≤ 0.5 非常低估、0.5~0.7 低估、0.7~1.0 一般低估、&gt;1.0 高估。<br>
+  · 折价率 = (当前总市值 − 合理估值) / 合理估值，<b>负值 = 低估、正值 = 高估</b>（越低越便宜）。<br>
   · 趋势：由收盘价 MA20/MA60 位置、近 20 日涨跌、MA20 斜率四条件打分（4/3=上升，2=震荡，1/0=下降）。<br>
   · 本报告为纯财报静态估算，PE 倍数与增速均为主观假设，<b>不构成投资建议</b>。
 </footer>

@@ -66,8 +66,9 @@ def scan(cfg: dict | None = None, base_year: int | None = None, trade_date: date
     df["流通市值"] = df["circ_mv"].apply(vl.wan_to_yi)
     df["市值比_三年后"] = df["当前市值"] / df["三年后合理估值"]
     df["市值比_去年"] = df["当前市值"] / df["去年年报合理估值"]
-    df["折价率_三年后"] = 1 - df["市值比_三年后"]
-    df["折价率_去年"] = 1 - df["市值比_去年"]
+    # 折价率口径：低估为负、高估为正 → 折价率 = (市值 − 合理估值) / 合理估值 = 市值比 − 1
+    df["折价率_三年后"] = df["市值比_三年后"] - 1
+    df["折价率_去年"] = df["市值比_去年"] - 1
     df["上行空间"] = df["市值比_三年后"].apply(vl.upside)
     df["档位"] = [vl.classify_tier(r, cfg)[0] for r in df["市值比_三年后"]]
     df["档位颜色"] = [vl.classify_tier(r, cfg)[1] for r in df["市值比_三年后"]]
